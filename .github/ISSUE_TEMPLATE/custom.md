@@ -1,0 +1,24 @@
+---
+name: Custom issue template
+about: Describe this issue template's purpose here.
+title: ''
+labels: ''
+assignees: ''
+
+---
+
+<!--
+- 이슈는 "작업 단위"로 생성합니다.
+- 무엇을 왜 해야 하는지 중심으로 작성합니다.
+- 구현 방법보다는 목표와 범위를 명확히 합니다.
+-->
+
+## 📌 개요
+- 무엇을 하려나요? (한 줄 요약)
+
+## 🛠 할 일 (To-do)
+- [ ] 작업 내용 1
+- [ ] 작업 내용 2
+
+## 🔗 참고 (선택)
+- 관련 스크린샷이나 링크
