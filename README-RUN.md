@@ -49,6 +49,14 @@ npm install
 npm run dev
 ```
 
+프론트 의존성/설정 정상 여부를 빠르게 확인하려면 아래 명령도 권장합니다.
+
+```powershell
+cd .\frontend
+npm run lint
+npx tsc --noEmit
+```
+
 정상 실행 확인:
 
 - 프론트엔드: <http://localhost:3000>
