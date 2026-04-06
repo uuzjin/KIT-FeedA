@@ -1,0 +1,27 @@
+:root {
+  --primary: #2033ff;
+  --secondary: #bac7da;
+  --accent: #b3ff3b;
+  --bg: #eef2f7;
+  --sidebar-bg: #d9dde4;
+  --surface: #ffffff;
+  --text: #172033;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  font-family: "Pretendard", "Noto Sans KR", Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
