@@ -1,3 +1,15 @@
+# v0 sandbox internal files
+__v0_runtime_loader.js
+__v0_devtools.tsx
+__v0_jsx-dev-runtime.ts
+.snowflake/
+.v0-trash/
+.vercel/
+next.user-config.*
+
+# Common ignores
+.vercel
+
 # Node / Next.js
 frontend/node_modules/
 frontend/.next/
@@ -14,6 +26,7 @@ backend/**/*.pyc
 .env
 .env.local
 .env.*.local
+.env*.local
 
 # OS / Editor
 .DS_Store
