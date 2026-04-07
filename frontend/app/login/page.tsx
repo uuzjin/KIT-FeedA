@@ -5,7 +5,13 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { FieldGroup, Field, FieldLabel } from "@/components/ui/field";
 import { GraduationCap, Eye, EyeOff, Loader2 } from "lucide-react";
 
@@ -24,7 +30,7 @@ export default function LoginPage() {
     setIsLoading(true);
 
     const success = await login(username, password);
-    
+
     if (success) {
       router.push("/");
     } else {
@@ -34,14 +40,17 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-primary/5 via-background to-primary/10 p-4">
-      <div className="mb-8 flex flex-col items-center gap-3">
-        <div className="flex size-16 items-center justify-center rounded-2xl bg-primary shadow-lg shadow-primary/25">
-          <GraduationCap className="size-9 text-primary-foreground" />
-        </div>
+    <div className="flex min-h-screen flex-col items-center justify-center bg-linear-to-br from-primary/5 via-background to-primary/10 p-4">
+      <div className="mb-5 flex flex-col items-center gap-3">
+        <img src="/logo.svg" alt="KIT FeedA" className="width-30" />
+
         <div className="text-center">
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">{"EduFlow"}</h1>
-          <p className="text-sm text-muted-foreground">{"스마트 교육 플랫폼"}</p>
+          {/* <h1 className="text-2xl font-bold tracking-tight text-foreground">
+            {"FeedA"}
+          </h1> */}
+          <p className="text-sm text-muted-foreground">
+            {"더 나은 학습 환경을 피워내다"}
+          </p>
         </div>
       </div>
 
@@ -113,15 +122,21 @@ export default function LoginPage() {
           </form>
 
           <div className="mt-6 rounded-lg bg-muted/50 p-4">
-            <p className="mb-2 text-center text-xs font-medium text-muted-foreground">{"테스트 계정"}</p>
+            <p className="mb-2 text-center text-xs font-medium text-muted-foreground">
+              {"테스트 계정"}
+            </p>
             <div className="flex flex-col gap-2 text-xs">
               <div className="flex items-center justify-between rounded-md bg-card px-3 py-2">
                 <span className="font-medium text-foreground">{"강사"}</span>
-                <span className="text-muted-foreground">{"teacher / teacher"}</span>
+                <span className="text-muted-foreground">
+                  {"teacher / teacher"}
+                </span>
               </div>
               <div className="flex items-center justify-between rounded-md bg-card px-3 py-2">
                 <span className="font-medium text-foreground">{"학생"}</span>
-                <span className="text-muted-foreground">{"student / student"}</span>
+                <span className="text-muted-foreground">
+                  {"student / student"}
+                </span>
               </div>
             </div>
           </div>
