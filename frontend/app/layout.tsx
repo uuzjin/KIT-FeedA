@@ -15,17 +15,17 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "EduFlow - 스마트 교육 플랫폼",
-  description: "AI 기반 스마트 교육 관리 시스템",
+  title: "FeedA - 더 나은 학습 환경을 피워내다",
+  description: "AI 피드백으로 완성되는 스마트 아카데미 시스템",
   generator: "v0.app",
   icons: {
     icon: [
       {
-        url: "/icon-light-32x32.png",
+        url: "/icon-light-32x32.svg",
         media: "(prefers-color-scheme: light)",
       },
       {
-        url: "/icon-dark-32x32.png",
+        url: "/icon-dark-32x32.svg",
         media: "(prefers-color-scheme: dark)",
       },
       {
@@ -33,7 +33,7 @@ export const metadata: Metadata = {
         type: "image/svg+xml",
       },
     ],
-    apple: "/apple-icon.png",
+    apple: "/apple-icon.svg",
   },
 };
 

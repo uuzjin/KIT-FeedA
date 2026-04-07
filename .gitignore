@@ -33,3 +33,4 @@ backend/**/*.pyc
 Thumbs.db
 .vscode/
 .idea/
+.venv

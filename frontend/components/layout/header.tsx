@@ -1,6 +1,15 @@
 "use client";
 
-import { Menu, Settings, LogOut, User, Bell, Trash2, GraduationCap, BookOpen } from "lucide-react";
+import {
+  Menu,
+  Settings,
+  LogOut,
+  User,
+  Bell,
+  Trash2,
+  GraduationCap,
+  BookOpen,
+} from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,18 +36,76 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
 
+import logo from "@/assets/logo.svg";
+
 const teacherCourses = [
-  { id: 1, name: "데이터베이스 개론", semester: "2024-1", day: "월/수", time: "10:00-11:30", students: 45 },
-  { id: 2, name: "운영체제", semester: "2024-1", day: "화/목", time: "13:00-14:30", students: 38 },
-  { id: 3, name: "컴퓨터 네트워크", semester: "2024-1", day: "월/수", time: "14:00-15:30", students: 42 },
-  { id: 4, name: "소프트웨어 공학", semester: "2024-1", day: "금", time: "10:00-13:00", students: 31 },
+  {
+    id: 1,
+    name: "데이터베이스 개론",
+    semester: "2024-1",
+    day: "월/수",
+    time: "10:00-11:30",
+    students: 45,
+  },
+  {
+    id: 2,
+    name: "운영체제",
+    semester: "2024-1",
+    day: "화/목",
+    time: "13:00-14:30",
+    students: 38,
+  },
+  {
+    id: 3,
+    name: "컴퓨터 네트워크",
+    semester: "2024-1",
+    day: "월/수",
+    time: "14:00-15:30",
+    students: 42,
+  },
+  {
+    id: 4,
+    name: "소프트웨어 공학",
+    semester: "2024-1",
+    day: "금",
+    time: "10:00-13:00",
+    students: 31,
+  },
 ];
 
 const studentCourses = [
-  { id: 1, name: "데이터베이스 개론", semester: "2024-1", day: "월/수", time: "10:00-11:30", professor: "김교수" },
-  { id: 2, name: "운영체제", semester: "2024-1", day: "화/목", time: "13:00-14:30", professor: "박교수" },
-  { id: 3, name: "컴퓨터 네트워크", semester: "2024-1", day: "월/수", time: "14:00-15:30", professor: "이교수" },
-  { id: 4, name: "소프트웨어 공학", semester: "2024-1", day: "금", time: "10:00-13:00", professor: "최교수" },
+  {
+    id: 1,
+    name: "데이터베이스 개론",
+    semester: "2024-1",
+    day: "월/수",
+    time: "10:00-11:30",
+    professor: "김교수",
+  },
+  {
+    id: 2,
+    name: "운영체제",
+    semester: "2024-1",
+    day: "화/목",
+    time: "13:00-14:30",
+    professor: "박교수",
+  },
+  {
+    id: 3,
+    name: "컴퓨터 네트워크",
+    semester: "2024-1",
+    day: "월/수",
+    time: "14:00-15:30",
+    professor: "이교수",
+  },
+  {
+    id: 4,
+    name: "소프트웨어 공학",
+    semester: "2024-1",
+    day: "금",
+    time: "10:00-13:00",
+    professor: "최교수",
+  },
 ];
 
 export function Header() {
@@ -65,7 +132,11 @@ export function Header() {
         {/* 좌측: 햄버거 메뉴 */}
         <Sheet open={isMenuOpen} onOpenChange={setIsMenuOpen}>
           <SheetTrigger asChild>
-            <Button variant="ghost" size="icon" className="shrink-0 hover:bg-primary/10">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="shrink-0 hover:bg-primary/10"
+            >
               <Menu className="size-5 text-foreground" />
               <span className="sr-only">{"메뉴 열기"}</span>
             </Button>
@@ -81,7 +152,9 @@ export function Header() {
                 {isTeacher ? "담당 강의" : "수강 중인 강의"}
               </SheetTitle>
               <SheetDescription className="text-left text-muted-foreground">
-                {isTeacher ? "강의를 선택하세요" : "수강 중인 강의를 선택하세요"}
+                {isTeacher
+                  ? "강의를 선택하세요"
+                  : "수강 중인 강의를 선택하세요"}
               </SheetDescription>
             </SheetHeader>
             <ScrollArea className="h-[calc(100vh-220px)]">
@@ -97,7 +170,11 @@ export function Header() {
                         {course.name}
                       </span>
                       <Badge variant="secondary" className="text-xs">
-                        {isTeacher && "students" in course ? `${course.students}명` : "professor" in course ? course.professor : ""}
+                        {isTeacher && "students" in course
+                          ? `${course.students}명`
+                          : "professor" in course
+                            ? course.professor
+                            : ""}
                       </Badge>
                     </div>
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -143,7 +220,10 @@ export function Header() {
                   <Switch
                     checked={notifications.material}
                     onCheckedChange={(checked) =>
-                      setNotifications((prev) => ({ ...prev, material: checked }))
+                      setNotifications((prev) => ({
+                        ...prev,
+                        material: checked,
+                      }))
                     }
                   />
                 </div>
@@ -157,7 +237,10 @@ export function Header() {
                   <Switch
                     checked={notifications.deadline}
                     onCheckedChange={(checked) =>
-                      setNotifications((prev) => ({ ...prev, deadline: checked }))
+                      setNotifications((prev) => ({
+                        ...prev,
+                        deadline: checked,
+                      }))
                     }
                   />
                 </div>
@@ -167,19 +250,24 @@ export function Header() {
         </Sheet>
 
         {/* 중앙: 로고 */}
-        <div className="flex items-center gap-2">
-          <div className="flex size-8 items-center justify-center rounded-lg bg-primary">
-            <GraduationCap className="size-5 text-primary-foreground" />
+        <div className="flex items-center">
+          <div className="flex size-15 items-center justify-center">
+            <img
+              src="/logo.svg"
+              alt="KIT FeedA"
+              className="size-20 text-primary"
+            />
           </div>
-          <span className="text-lg font-bold tracking-tight text-foreground">
-            {"EduFlow"}
-          </span>
         </div>
 
         {/* 우측: 프로필 */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="shrink-0 rounded-full hover:bg-primary/10">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="shrink-0 rounded-full hover:bg-primary/10"
+            >
               <Avatar className="size-8 ring-2 ring-primary/20 ring-offset-2 ring-offset-background transition-all hover:ring-primary/40">
                 <AvatarImage src="/placeholder-avatar.jpg" alt="프로필" />
                 <AvatarFallback className="bg-primary text-sm font-semibold text-primary-foreground">
@@ -199,8 +287,12 @@ export function Header() {
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex flex-col">
-                  <span className="font-semibold">{user?.name || "사용자"}</span>
-                  <span className="text-xs text-muted-foreground">{user?.email || ""}</span>
+                  <span className="font-semibold">
+                    {user?.name || "사용자"}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {user?.email || ""}
+                  </span>
                   <Badge variant="outline" className="mt-1 w-fit text-xs">
                     {isTeacher ? "강사" : "학생"}
                   </Badge>
@@ -217,11 +309,17 @@ export function Header() {
               {"계정 설정"}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="cursor-pointer rounded-lg p-3" onClick={handleLogout}>
+            <DropdownMenuItem
+              className="cursor-pointer rounded-lg p-3"
+              onClick={handleLogout}
+            >
               <LogOut className="mr-3 size-4 text-muted-foreground" />
               {"로그아웃"}
             </DropdownMenuItem>
-            <DropdownMenuItem variant="destructive" className="cursor-pointer rounded-lg p-3">
+            <DropdownMenuItem
+              variant="destructive"
+              className="cursor-pointer rounded-lg p-3"
+            >
               <Trash2 className="mr-3 size-4" />
               {"회원 탈퇴"}
             </DropdownMenuItem>
