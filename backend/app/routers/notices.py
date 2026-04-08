@@ -3,21 +3,9 @@ from pydantic import BaseModel
 
 from ..core.auth import get_current_user, require_instructor
 from ..database import supabase
+from ..dependencies import require_instructor_of
 
 router = APIRouter(prefix="/api/courses/{course_id}/announcements", tags=["notices"])
-
-
-def _require_instructor_of(course_id: str, user_id: str) -> None:
-    result = (
-        supabase.table("course_instructors")
-        .select("id")
-        .eq("course_id", course_id)
-        .eq("instructor_id", user_id)
-        .maybe_single()
-        .execute()
-    )
-    if not result.data:
-        raise HTTPException(status_code=403, detail="해당 강의의 담당 강사가 아닙니다.")
 
 
 class AnnouncementGenerateRequest(BaseModel):
@@ -79,7 +67,7 @@ def generate_announcement(
     return _format_announcement(announcement)
 
 
-async def _placeholder_generate(
+def _placeholder_generate(
     announcement_id: str,
     template_type: str,
     course_id: str,

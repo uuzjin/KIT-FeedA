@@ -4,6 +4,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPExcepti
 
 from ..core.auth import get_current_user, require_instructor
 from ..core.background import mark_completed, mark_failed, mark_processing
+from ..dependencies import require_instructor_of
 from ..core.storage import (
     ALLOWED_SCRIPT_TYPES,
     BUCKET_SCRIPTS,
@@ -15,19 +16,6 @@ from ..core.storage import (
 from ..database import supabase
 
 router = APIRouter(prefix="/api/courses/{course_id}/scripts", tags=["scripts"])
-
-
-def _require_instructor_of(course_id: str, user_id: str) -> None:
-    result = (
-        supabase.table("course_instructors")
-        .select("id")
-        .eq("course_id", course_id)
-        .eq("instructor_id", user_id)
-        .maybe_single()
-        .execute()
-    )
-    if not result.data:
-        raise HTTPException(status_code=403, detail="해당 강의의 담당 강사가 아닙니다.")
 
 
 def _format_script(row: dict) -> dict:
@@ -92,7 +80,7 @@ async def upload_script(
     return _format_script(script)
 
 
-async def _run_structural_analysis(script_id: str, storage_path: str, mime_type: str) -> None:
+def _run_structural_analysis(script_id: str, storage_path: str, mime_type: str) -> None:
     """1단계: Claude Haiku로 구조 분석 (논리/용어/전제지식)."""
     from ..core.ai import call_haiku_json
     from ..core.text_extract import extract_text
@@ -139,10 +127,10 @@ async def _run_structural_analysis(script_id: str, storage_path: str, mime_type:
             mark_failed("script_analyses", rid, str(e))
 
     # 1단계 완료 후 2단계(보완 제안) 트리거
-    await _run_suggestions(script_id, script_text)
+    _run_suggestions(script_id, script_text)
 
 
-async def _run_suggestions(script_id: str, script_text: str) -> None:
+def _run_suggestions(script_id: str, script_text: str) -> None:
     """2단계: Claude Sonnet으로 보완 제안 + 리포트 생성."""
     from ..core.ai import call_sonnet_json
     from ..prompts.script_analysis import (

@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from ..core.auth import get_current_user, require_instructor
 from ..core.errors import AppError
 from ..database import supabase
-from ..schemas import ProfileUpdateRequest, RoleUpdateRequest
+from ..schemas import AssignCoursesRequest, ProfileUpdateRequest, RoleUpdateRequest
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -59,13 +59,13 @@ def update_profile(
 @router.post("/{user_id}/courses")
 def assign_courses(
     user_id: str,
-    payload: dict,
+    payload: AssignCoursesRequest,
     current_user: dict = Depends(require_instructor),
 ):
     if current_user["id"] != user_id:
         raise HTTPException(status_code=403, detail="본인의 담당 과목만 등록할 수 있습니다.")
 
-    course_ids: list[str] = payload.get("courseIds", [])
+    course_ids = payload.courseIds
     if not course_ids:
         raise HTTPException(status_code=400, detail="courseIds가 비어 있습니다.")
 

@@ -95,7 +95,7 @@ def call_sonnet_json(system: str, user: str, max_tokens: int = 4096) -> Any:
     return _parse_json(raw)
 
 
-async def transcribe_audio(file_path: str, file_name: str) -> dict:
+def transcribe_audio(file_path: str, file_name: str) -> dict:
     """faster-whisper로 로컬에서 오디오 텍스트 변환 (완전 무료)."""
     model = _get_whisper()
 

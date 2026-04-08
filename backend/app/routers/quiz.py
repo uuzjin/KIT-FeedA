@@ -4,21 +4,9 @@ from pydantic import BaseModel
 from ..core.auth import get_current_user, require_instructor
 from ..core.background import mark_completed, mark_failed, mark_processing, mark_status
 from ..database import supabase
+from ..dependencies import require_instructor_of
 
 router = APIRouter(prefix="/api/courses/{course_id}/quizzes", tags=["quiz"])
-
-
-def _require_instructor_of(course_id: str, user_id: str) -> None:
-    result = (
-        supabase.table("course_instructors")
-        .select("id")
-        .eq("course_id", course_id)
-        .eq("instructor_id", user_id)
-        .maybe_single()
-        .execute()
-    )
-    if not result.data:
-        raise HTTPException(status_code=403, detail="해당 강의의 담당 강사가 아닙니다.")
 
 
 def _format_quiz(row: dict, include_questions: bool = False) -> dict:
@@ -113,7 +101,7 @@ def generate_quiz(
     }
 
 
-async def _run_quiz_generation(
+def _run_quiz_generation(
     quiz_id: str,
     course_id: str,
     schedule_id: str,
@@ -550,7 +538,7 @@ def get_analysis(
     }
 
 
-async def _run_response_analysis(quiz_id: str, course_id: str) -> None:
+def _run_response_analysis(quiz_id: str, course_id: str) -> None:
     """퀴즈 종료 후 오답 분석 + 개선 제안 생성."""
     from ..core.ai import call_sonnet_json
     from ..prompts.quiz_generation import QUIZ_ANALYSIS_SYSTEM, quiz_analysis_user
@@ -621,42 +609,145 @@ async def _run_response_analysis(quiz_id: str, course_id: str) -> None:
         }, on_conflict="quiz_id").execute()
 
         # dashboard_snapshots 갱신
-        await _refresh_dashboard_snapshot(course_id, quiz_id, result.get("weak_concepts", []))
+        _refresh_dashboard_snapshot(course_id, quiz_id, result.get("weak_concepts", []))
 
     except Exception as e:
         if analysis_id:
             mark_failed("quiz_response_analyses", analysis_id, str(e))
 
 
-async def _refresh_dashboard_snapshot(course_id: str, quiz_id: str, weak_concepts: list[str]) -> None:
-    """퀴즈 CLOSED 후 dashboard_snapshots 갱신."""
-    try:
-        # 전체 퀴즈 평균 정답률
-        all_subs = (
-            supabase.table("quiz_submissions")
-            .select("score, quiz_id, quizzes(course_id)")
-            .execute()
-        )
-        course_subs = [s for s in (all_subs.data or []) if s.get("quizzes", {}).get("course_id") == course_id]
-        avg_accuracy = round(sum(s["score"] for s in course_subs) / len(course_subs), 1) if course_subs else 0.0
+def _refresh_dashboard_snapshot(course_id: str, quiz_id: str, weak_concepts: list[str]) -> None:
+    """퀴즈 CLOSED 후 dashboard_snapshots 갱신.
 
-        # 업로드된 주차 수
-        scripts = (
-            supabase.table("scripts")
-            .select("week_number")
+    쿼리 구조 (총 7회, N+1 없음):
+    ① quizzes       — course의 quiz_ids + schedule→quiz 매핑
+    ② submissions   — ①의 quiz_ids로 일괄 조회
+    ③ schedules     — week_number, topic 포함
+    ④ enrollments   — count만 (참여율 분모)
+    ⑤ scripts       — scriptDone 판별
+    ⑥ preview_guides — previewDone 판별
+    ⑦ review_summaries — reviewDone 판별
+    """
+    from datetime import datetime, timezone
+
+    try:
+        # ① 과목의 모든 퀴즈 (schedule_id → quiz_id 매핑)
+        quiz_rows = (
+            supabase.table("quizzes")
+            .select("id, schedule_id")
             .eq("course_id", course_id)
             .execute()
-        )
-        uploaded_weeks = len({s["week_number"] for s in (scripts.data or []) if s.get("week_number")})
+        ).data or []
+        quiz_ids = [q["id"] for q in quiz_rows]
+        schedule_to_quiz_id: dict[str, str] = {
+            q["schedule_id"]: q["id"]
+            for q in quiz_rows
+            if q.get("schedule_id")
+        }
 
-        # weak_topics 포맷
-        weak_topics = [{"topic": c, "wrongRate": 0, "relatedQuizzes": [{"quizId": quiz_id}]} for c in weak_concepts]
+        # ② 해당 과목 퀴즈의 전체 제출 일괄 조회
+        submissions_by_quiz: dict[str, list[float]] = {}
+        if quiz_ids:
+            for sub in (
+                supabase.table("quiz_submissions")
+                .select("quiz_id, score")
+                .in_("quiz_id", quiz_ids)
+                .execute()
+            ).data or []:
+                submissions_by_quiz.setdefault(sub["quiz_id"], []).append(sub["score"])
+
+        # ③ 스케줄 목록 (topic 포함)
+        schedules = (
+            supabase.table("course_schedules")
+            .select("id, week_number, topic")
+            .eq("course_id", course_id)
+            .order("week_number")
+            .execute()
+        ).data or []
+
+        # ④ 수강생 수 (참여율 분모)
+        enrolled_count = (
+            supabase.table("course_enrollments")
+            .select("id", count="exact")
+            .eq("course_id", course_id)
+            .execute()
+        ).count or 0
+
+        # ⑤ 스크립트 업로드 현황
+        script_rows = (
+            supabase.table("scripts")
+            .select("schedule_id, week_number")
+            .eq("course_id", course_id)
+            .execute()
+        ).data or []
+        script_schedule_ids = {s["schedule_id"] for s in script_rows if s.get("schedule_id")}
+        script_week_numbers = {s["week_number"] for s in script_rows if s.get("week_number")}
+
+        # ⑥ 예습 가이드 완료 현황
+        preview_done_ids = {
+            p["schedule_id"]
+            for p in (
+                supabase.table("preview_guides")
+                .select("schedule_id")
+                .eq("course_id", course_id)
+                .eq("status", "completed")
+                .execute()
+            ).data or []
+            if p.get("schedule_id")
+        }
+
+        # ⑦ 복습 요약 완료 현황
+        review_done_ids = {
+            r["schedule_id"]
+            for r in (
+                supabase.table("review_summaries")
+                .select("schedule_id")
+                .eq("course_id", course_id)
+                .eq("status", "completed")
+                .execute()
+            ).data or []
+            if r.get("schedule_id")
+        }
+
+        # weekly_stats 구성
+        weekly_stats = []
+        for sched in schedules:
+            sched_id = sched["id"]
+            week_num = sched["week_number"]
+            qid = schedule_to_quiz_id.get(sched_id)
+            scores = submissions_by_quiz.get(qid, []) if qid else []
+
+            weekly_stats.append({
+                "weekNumber": week_num,
+                "topic": sched.get("topic"),
+                "quizId": qid,
+                "averageScore": round(sum(scores) / len(scores), 1) if scores else None,
+                "participationRate": round(len(scores) / enrolled_count * 100, 1) if (scores and enrolled_count) else 0.0,
+                "previewDone": sched_id in preview_done_ids,
+                "reviewDone": sched_id in review_done_ids,
+                "scriptDone": sched_id in script_schedule_ids or week_num in script_week_numbers,
+            })
+
+        # 전체 평균 정답률
+        all_scores = [s for scores in submissions_by_quiz.values() for s in scores]
+        avg_accuracy = round(sum(all_scores) / len(all_scores), 1) if all_scores else 0.0
+
+        # TODO: weak_topics[].wrongRate는 quiz_response_analyses 결과와 미연결.
+        #       실제 오답률 계산은 이후 작업으로 분리.
+        weak_topics = [
+            {"topic": c, "wrongRate": 0, "relatedQuizzes": [{"quizId": quiz_id}]}
+            for c in weak_concepts
+        ]
 
         supabase.table("dashboard_snapshots").upsert({
             "course_id": course_id,
             "average_accuracy": avg_accuracy,
             "weak_topics": weak_topics,
-            "uploaded_weeks": uploaded_weeks,
+            "uploaded_weeks": len(script_week_numbers),
+            "total_weeks": len(schedules),
+            "weekly_stats": weekly_stats,
+            "refreshed_at": datetime.now(timezone.utc).isoformat(),
         }, on_conflict="course_id").execute()
+
     except Exception:
         pass

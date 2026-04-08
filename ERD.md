@@ -348,7 +348,7 @@ erDiagram
         jsonb weak_topics "[{topic, wrongRate, relatedQuizzes}] 취약 토픽 목록"
         int uploaded_weeks "스크립트 업로드된 주차 수"
         int total_weeks "전체 주차 수"
-        jsonb weekly_stats "[{weekNumber, averageScore, participationRate, previewDone, reviewDone, scriptDone}]"
+        jsonb weekly_stats "[{weekNumber, topic, quizId, averageScore, participationRate, previewDone, reviewDone, scriptDone}]"
         timestamptz refreshed_at
     }
 
@@ -615,7 +615,7 @@ FastAPI는 JWT에서 `sub` 클레임을 추출하여 `profiles.id`와 매핑.
 
 | 테이블 | 설명 |
 |--------|------|
-| `dashboard_snapshots` | 과목별 집계 데이터 캐시. 퀴즈 제출/완료 이벤트마다 갱신. `weak_topics` JSONB 배열 `[{topic, wrongRate, relatedQuizzes}]`. `weekly_stats` JSONB 배열 `[{weekNumber, averageScore, participationRate, previewDone, reviewDone, scriptDone}]`. |
+| `dashboard_snapshots` | 과목별 집계 데이터 캐시. 퀴즈 제출/완료 이벤트마다 갱신. `weak_topics` JSONB 배열 `[{topic, wrongRate, relatedQuizzes}]`. `weekly_stats` JSONB 배열 `[{weekNumber, topic, quizId, averageScore, participationRate, previewDone, reviewDone, scriptDone}]`. |
 
 > 실시간 집계 대신 캐시 테이블을 두어 대시보드 조회 성능 확보.  
 > 퀴즈 `status = CLOSED` 이벤트 또는 자료 생성 완료 이벤트 트리거로 갱신.
