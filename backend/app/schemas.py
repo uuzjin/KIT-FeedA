@@ -80,3 +80,7 @@ class InviteCreateRequest(BaseModel):
 
 class JoinCourseRequest(BaseModel):
     token: str
+
+
+class AssignCoursesRequest(BaseModel):
+    courseIds: list[str]

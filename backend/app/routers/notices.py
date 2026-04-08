@@ -3,21 +3,9 @@ from pydantic import BaseModel
 
 from ..core.auth import get_current_user, require_instructor
 from ..database import supabase
+from ..dependencies import require_instructor_of
 
 router = APIRouter(prefix="/api/courses/{course_id}/announcements", tags=["notices"])
-
-
-def _require_instructor_of(course_id: str, user_id: str) -> None:
-    result = (
-        supabase.table("course_instructors")
-        .select("id")
-        .eq("course_id", course_id)
-        .eq("instructor_id", user_id)
-        .maybe_single()
-        .execute()
-    )
-    if not result.data:
-        raise HTTPException(status_code=403, detail="해당 강의의 담당 강사가 아닙니다.")
 
 
 class AnnouncementGenerateRequest(BaseModel):
@@ -47,7 +35,7 @@ def _format_announcement(row: dict) -> dict:
 
 
 # ── 6.3.1 공지문 자동 생성 트리거 ────────────────────────────────────────────
-@router.post("", status_code=201)
+@router.post("", status_code=202)
 def generate_announcement(
     course_id: str,
     payload: AnnouncementGenerateRequest,
@@ -58,7 +46,7 @@ def generate_announcement(
     if payload.templateType not in valid_types:
         raise HTTPException(status_code=400, detail=f"templateType은 {valid_types} 중 하나여야 합니다.")
 
-    _require_instructor_of(course_id, current_user["id"])
+    require_instructor_of(course_id, current_user["id"])
 
     result = supabase.table("announcements").insert({
         "course_id": course_id,
@@ -72,21 +60,67 @@ def generate_announcement(
         raise HTTPException(status_code=500, detail="공지문 생성 요청에 실패했습니다.")
 
     announcement = result.data[0]
+    background_tasks.add_task(
+        _run_announcement_generation,
+        announcement["id"],
+        payload.templateType,
+        course_id,
+        payload.scheduleId,
+        payload.customMessage,
+    )
 
-    # Phase 4에서 LLM 호출로 교체 예정
-    background_tasks.add_task(_placeholder_generate, announcement["id"], payload.templateType, course_id, payload.scheduleId)
+    return {
+        **_format_announcement(announcement),
+        "message": "공지문 생성이 시작되었습니다. 완료 시 Supabase Realtime으로 반영됩니다.",
+    }
 
-    return _format_announcement(announcement)
 
-
-async def _placeholder_generate(
+def _run_announcement_generation(
     announcement_id: str,
     template_type: str,
     course_id: str,
     schedule_id: str | None,
+    custom_message: str | None,
 ) -> None:
-    """Phase 4 AI 공지문 생성 구현 전 placeholder."""
-    pass
+    """Gemini Flash로 공지문 생성."""
+    from datetime import datetime, timezone
+
+    from ..core.ai import call_sonnet_json
+    from ..prompts.announcement import ANNOUNCEMENT_SYSTEM, announcement_user
+
+    try:
+        # 스케줄 정보 조회 (있을 경우)
+        topic = "강의"
+        week_number = None
+        if schedule_id:
+            sched = (
+                supabase.table("course_schedules")
+                .select("topic, week_number")
+                .eq("id", schedule_id)
+                .maybe_single()
+                .execute()
+            )
+            if sched.data:
+                topic = sched.data.get("topic") or "강의"
+                week_number = sched.data.get("week_number")
+
+        result = call_sonnet_json(
+            ANNOUNCEMENT_SYSTEM,
+            announcement_user(template_type, topic, week_number, custom_message),
+        )
+
+        supabase.table("announcements").update({
+            "status": "completed",
+            "title": result.get("title"),
+            "content": result.get("content"),
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        }).eq("id", announcement_id).execute()
+
+    except Exception as e:
+        supabase.table("announcements").update({
+            "status": "failed",
+            "error_message": str(e),
+        }).eq("id", announcement_id).execute()
 
 
 # ── 공지문 목록 조회 ──────────────────────────────────────────────────────────
@@ -138,7 +172,7 @@ def update_announcement(
     payload: AnnouncementUpdateRequest,
     current_user: dict = Depends(require_instructor),
 ):
-    _require_instructor_of(course_id, current_user["id"])
+    require_instructor_of(course_id, current_user["id"])
 
     updates = {k: v for k, v in payload.model_dump().items() if v is not None}
     if not updates:
@@ -163,5 +197,5 @@ def delete_announcement(
     announcement_id: str,
     current_user: dict = Depends(require_instructor),
 ):
-    _require_instructor_of(course_id, current_user["id"])
+    require_instructor_of(course_id, current_user["id"])
     supabase.table("announcements").delete().eq("id", announcement_id).eq("course_id", course_id).execute()

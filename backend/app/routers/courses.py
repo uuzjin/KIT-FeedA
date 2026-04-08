@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ..core.auth import get_current_user, require_instructor
 from ..database import supabase
+from ..dependencies import require_instructor_of
 from ..schemas import (
     CourseCreateRequest,
     CourseUpdateRequest,
@@ -16,19 +17,6 @@ from ..schemas import (
 )
 
 router = APIRouter(prefix="/api/courses", tags=["courses"])
-
-
-def _require_instructor_of(course_id: str, user_id: str) -> None:
-    result = (
-        supabase.table("course_instructors")
-        .select("id")
-        .eq("course_id", course_id)
-        .eq("instructor_id", user_id)
-        .maybe_single()
-        .execute()
-    )
-    if not result.data:
-        raise HTTPException(status_code=403, detail="해당 강의의 담당 강사가 아닙니다.")
 
 
 def _format_course(row: dict) -> dict:

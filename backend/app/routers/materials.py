@@ -11,21 +11,9 @@ from ..core.storage import (
     upload_file,
 )
 from ..database import supabase
+from ..dependencies import require_instructor_of
 
 router = APIRouter(prefix="/api/courses/{course_id}/audios", tags=["materials"])
-
-
-def _require_instructor_of(course_id: str, user_id: str) -> None:
-    result = (
-        supabase.table("course_instructors")
-        .select("id")
-        .eq("course_id", course_id)
-        .eq("instructor_id", user_id)
-        .maybe_single()
-        .execute()
-    )
-    if not result.data:
-        raise HTTPException(status_code=403, detail="해당 강의의 담당 강사가 아닙니다.")
 
 
 # ── 6.5.1 오디오 업로드 ───────────────────────────────────────────────────────
@@ -37,7 +25,7 @@ async def upload_audio(
     schedule_id: str | None = Form(None),
     current_user: dict = Depends(require_instructor),
 ):
-    _require_instructor_of(course_id, current_user["id"])
+    require_instructor_of(course_id, current_user["id"])
 
     file_id = str(uuid.uuid4())
     storage_path = f"{course_id}/{file_id}_{file.filename}"
@@ -72,8 +60,8 @@ async def upload_audio(
     }
 
 
-async def _run_transcription(audio_id: str, storage_path: str, file_name: str) -> None:
-    """OpenAI Whisper로 오디오 텍스트 변환."""
+def _run_transcription(audio_id: str, storage_path: str, file_name: str) -> None:
+    """faster-whisper로 오디오 텍스트 변환."""
     import os
     import tempfile
 
@@ -90,7 +78,7 @@ async def _run_transcription(audio_id: str, storage_path: str, file_name: str) -
             tmp_path = tmp.name
 
         try:
-            result = await transcribe_audio(tmp_path, file_name)
+            result = transcribe_audio(tmp_path, file_name)
         finally:
             os.unlink(tmp_path)
 
@@ -172,7 +160,7 @@ def delete_audio(
     audio_id: str,
     current_user: dict = Depends(require_instructor),
 ):
-    _require_instructor_of(course_id, current_user["id"])
+    require_instructor_of(course_id, current_user["id"])
 
     result = (
         supabase.table("audios")

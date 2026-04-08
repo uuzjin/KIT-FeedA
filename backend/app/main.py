@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .core.errors import AppError, app_error_handler, http_exception_handler, validation_exception_handler
 from .database import supabase
-from .routers import analysis, courses, dashboard, materials, notices, quiz, scripts, users
+from .routers import analysis, content, courses, dashboard, materials, notices, quiz, scripts, users
 
 app = FastAPI(title="FeedA API", version="0.1.0")
 
@@ -31,6 +31,8 @@ app.include_router(quiz.router)
 app.include_router(notices.router)
 app.include_router(dashboard.router)
 app.include_router(analysis.router)
+app.include_router(content.preview_router)
+app.include_router(content.review_router)
 
 
 # ── 헬스체크 ───────────────────────────────────────────────────────────────────
