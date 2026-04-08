@@ -263,7 +263,7 @@ erDiagram
         uuid source_id "material_type에 따라 참조 테이블 결정"
         text target_lms "MOODLE|CANVAS|BLACKBOARD"
         text lms_section
-        text status "COMPLETED|FAILED"
+        text status "PENDING|COMPLETED|FAILED"
         text lms_url
         text error_message
         uuid distributed_by FK

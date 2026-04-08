@@ -43,7 +43,7 @@ async def upload_script(
     schedule_id: str | None = Form(None),
     current_user: dict = Depends(require_instructor),
 ):
-    _require_instructor_of(course_id, current_user["id"])
+    require_instructor_of(course_id, current_user["id"])
 
     file_id = str(uuid.uuid4())
     storage_path = f"{course_id}/{file_id}_{file.filename}"
@@ -244,7 +244,7 @@ def delete_script(
     script_id: str,
     current_user: dict = Depends(require_instructor),
 ):
-    _require_instructor_of(course_id, current_user["id"])
+    require_instructor_of(course_id, current_user["id"])
 
     result = (
         supabase.table("scripts")

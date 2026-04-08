@@ -52,7 +52,7 @@ def generate_quiz(
     background_tasks: BackgroundTasks,
     current_user: dict = Depends(require_instructor),
 ):
-    _require_instructor_of(course_id, current_user["id"])
+    require_instructor_of(course_id, current_user["id"])
 
     if payload.questionCount < 1 or payload.questionCount > 20:
         raise HTTPException(status_code=400, detail="문항 수는 1~20 사이여야 합니다.")
@@ -238,7 +238,7 @@ def patch_quiz(
     payload: QuizPatchRequest,
     current_user: dict = Depends(require_instructor),
 ):
-    _require_instructor_of(course_id, current_user["id"])
+    require_instructor_of(course_id, current_user["id"])
 
     updates = {}
     if payload.difficultyLevel is not None:
@@ -271,7 +271,7 @@ def publish_quiz(
     quiz_id: str,
     current_user: dict = Depends(require_instructor),
 ):
-    _require_instructor_of(course_id, current_user["id"])
+    require_instructor_of(course_id, current_user["id"])
 
     result = (
         supabase.table("quizzes")
@@ -295,7 +295,7 @@ def close_quiz(
     background_tasks: BackgroundTasks,
     current_user: dict = Depends(require_instructor),
 ):
-    _require_instructor_of(course_id, current_user["id"])
+    require_instructor_of(course_id, current_user["id"])
 
     result = (
         supabase.table("quizzes")
@@ -419,7 +419,7 @@ def get_quiz_results(
     quiz_id: str,
     current_user: dict = Depends(require_instructor),
 ):
-    _require_instructor_of(course_id, current_user["id"])
+    require_instructor_of(course_id, current_user["id"])
 
     quiz = (
         supabase.table("quizzes")
@@ -493,7 +493,7 @@ def trigger_analysis(
     background_tasks: BackgroundTasks,
     current_user: dict = Depends(require_instructor),
 ):
-    _require_instructor_of(course_id, current_user["id"])
+    require_instructor_of(course_id, current_user["id"])
 
     # 분석 레코드 생성 또는 재실행
     supabase.table("quiz_response_analyses").upsert(
@@ -512,7 +512,7 @@ def get_analysis(
     quiz_id: str,
     current_user: dict = Depends(require_instructor),
 ):
-    _require_instructor_of(course_id, current_user["id"])
+    require_instructor_of(course_id, current_user["id"])
 
     analysis = (
         supabase.table("quiz_response_analyses")
