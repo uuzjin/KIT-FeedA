@@ -7,3 +7,8 @@ python-dotenv
 python-jose[cryptography]
 python-multipart
 httpx
+google-genai
+faster-whisper
+pdfplumber
+python-pptx
+python-docx
