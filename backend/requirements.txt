@@ -1,3 +1,9 @@
 fastapi
-uvicorn
+uvicorn[standard]
 pydantic
+pydantic-settings
+supabase
+python-dotenv
+python-jose[cryptography]
+python-multipart
+httpx

@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3:*)",
+      "Bash(powershell.exe:*)",
+      "Bash(python -c \"from app.main import app; print\\('OK'\\)\")",
+      "Bash(.venv/Scripts/pip install:*)",
+      "Bash(\"C:/Users/tjsl0/OneDrive/바탕 화면/2026-1-APPS/KIT-FeedA/.venv/Scripts/python\" -c \"from app.main import app; print\\('OK'\\)\")"
+    ]
+  }
+}
