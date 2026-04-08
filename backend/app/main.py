@@ -1,12 +1,14 @@
 from fastapi import FastAPI
+from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
+from .core.errors import AppError, app_error_handler, http_exception_handler, validation_exception_handler
 from .database import supabase
+from .routers import analysis, courses, dashboard, materials, notices, quiz, users
 
-from .routers import analysis, auth, courses, dashboard, materials, notices, quiz
+app = FastAPI(title="FeedA API", version="0.1.0")
 
-app = FastAPI(title="AI Lecture Assistant API", version="0.1.0")
-
+# ── CORS ──────────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
@@ -15,7 +17,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(auth.router)
+# ── 에러 핸들러 ────────────────────────────────────────────────────────────────
+app.add_exception_handler(AppError, app_error_handler)
+app.add_exception_handler(HTTPException, http_exception_handler)
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
+
+# ── 라우터 ─────────────────────────────────────────────────────────────────────
+app.include_router(users.router)
 app.include_router(courses.router)
 app.include_router(analysis.router)
 app.include_router(materials.router)
@@ -24,14 +32,13 @@ app.include_router(notices.router)
 app.include_router(dashboard.router)
 
 
-@app.get("/health")
+# ── 헬스체크 ───────────────────────────────────────────────────────────────────
+@app.get("/health", tags=["health"])
 def health_check():
     return {"status": "ok"}
 
 
-# DB 연결 테스트용 API 추가
-@app.get("/test-db")
+@app.get("/test-db", tags=["health"])
 def test_db_connection():
-    # profiles 테이블에서 데이터 1개만 가져와서 연결 테스트
     response = supabase.table("profiles").select("*").limit(1).execute()
     return {"status": "success", "data": response.data}
