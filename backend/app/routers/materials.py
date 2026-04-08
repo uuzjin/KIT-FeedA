@@ -60,8 +60,7 @@ async def upload_audio(
 
     audio = result.data[0]
 
-    # Phase 3에서 Whisper API 호출로 교체 예정
-    background_tasks.add_task(_placeholder_transcribe, audio["id"])
+    background_tasks.add_task(_run_transcription, audio["id"], storage_path, file.filename)
 
     return {
         "audioId": audio["id"],
@@ -73,9 +72,39 @@ async def upload_audio(
     }
 
 
-async def _placeholder_transcribe(audio_id: str) -> None:
-    """Phase 3 Whisper API 구현 전 placeholder."""
-    pass
+async def _run_transcription(audio_id: str, storage_path: str, file_name: str) -> None:
+    """OpenAI Whisper로 오디오 텍스트 변환."""
+    import os
+    import tempfile
+
+    from ..core.ai import transcribe_audio
+
+    try:
+        # Storage에서 파일 다운로드
+        file_bytes: bytes = supabase.storage.from_(BUCKET_AUDIOS).download(storage_path)
+
+        # 임시 파일에 저장 후 Whisper 호출
+        suffix = os.path.splitext(file_name)[1] or ".mp3"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(file_bytes)
+            tmp_path = tmp.name
+
+        try:
+            result = await transcribe_audio(tmp_path, file_name)
+        finally:
+            os.unlink(tmp_path)
+
+        # 변환 결과 저장
+        supabase.table("audio_transcripts").upsert({
+            "audio_id": audio_id,
+            "transcript": result["transcript"],
+            "segments": result["segments"],
+        }, on_conflict="audio_id").execute()
+
+        supabase.table("audios").update({"status": "COMPLETED"}).eq("id", audio_id).execute()
+
+    except Exception as e:
+        supabase.table("audios").update({"status": "FAILED"}).eq("id", audio_id).execute()
 
 
 # ── 오디오 목록 조회 ──────────────────────────────────────────────────────────
