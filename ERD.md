@@ -34,6 +34,7 @@ erDiagram
         text role "INSTRUCTOR | STUDENT | ADMIN"
         text title "직책 (교수 등)"
         text profile_image_path
+        timestamptz deleted_at "null=활성, 값 있으면 탈퇴 처리 (30일 후 영구 삭제)"
         timestamptz created_at
         timestamptz updated_at
     }
@@ -218,6 +219,7 @@ erDiagram
         uuid id PK
         uuid course_id FK
         uuid schedule_id FK UK "스케줄당 1개"
+        text title "nullable, 없으면 '{N}주차 예습 가이드' 자동 생성"
         text status "generating|completed|failed"
         text[] key_concepts
         jsonb reading_materials
@@ -231,6 +233,7 @@ erDiagram
         uuid id PK
         uuid course_id FK
         uuid schedule_id FK UK "스케줄당 1개"
+        text title "nullable, 없으면 '{N}주차 복습 요약본' 자동 생성"
         text status "generating|completed|failed"
         text content
         text[] key_points
@@ -342,10 +345,10 @@ erDiagram
         uuid id PK
         uuid course_id FK
         float average_accuracy "전체 평균 정답률"
-        text[] weak_topics "취약 토픽 목록"
+        jsonb weak_topics "[{topic, wrongRate, relatedQuizzes}] 취약 토픽 목록"
         int uploaded_weeks "스크립트 업로드된 주차 수"
         int total_weeks "전체 주차 수"
-        jsonb weekly_stats "주차별 통계 캐시"
+        jsonb weekly_stats "[{weekNumber, averageScore, participationRate, previewDone, reviewDone, scriptDone}]"
         timestamptz refreshed_at
     }
 
@@ -370,6 +373,8 @@ erDiagram
         bool email_enabled
         bool push_enabled
         bool in_app_enabled
+        bool kakao_enabled
+        timestamptz kakao_verified_at "카카오 채널 연동 완료 시각 (null이면 미연동)"
         bool quiz_published
         bool material_ready
         bool deadline_reminder
@@ -530,6 +535,11 @@ erDiagram
 Supabase `auth.users` 트리거로 자동 생성. `id`는 `auth.users.id`(UUID)와 동일.  
 FastAPI는 JWT에서 `sub` 클레임을 추출하여 `profiles.id`와 매핑.
 
+**Soft Delete (계정 탈퇴)**  
+`DELETE /api/users/{userId}` 호출 시 즉시 삭제하지 않고 `deleted_at = NOW()`로 표시.  
+이후 30일간 로그인 불가(403 반환), 30일 경과 후 배치 작업으로 `auth.users` 삭제 → CASCADE 영구 삭제.  
+소셜 로그인 사용자는 Supabase OAuth 재인증으로 본인 확인 후 탈퇴 처리.
+
 ---
 
 ### Section 2 — 강의 관리
@@ -581,8 +591,8 @@ FastAPI는 JWT에서 `sub` 클레임을 추출하여 `profiles.id`와 매핑.
 
 | 테이블 | 설명 |
 |--------|------|
-| `preview_guides` | 예습 가이드. 스케줄당 1개 (UNIQUE). `status=generating` → Realtime → `completed`. |
-| `review_summaries` | 복습 요약본. 스케줄당 1개 (UNIQUE). |
+| `preview_guides` | 예습 가이드. 스케줄당 1개 (UNIQUE). `status=generating` → Realtime → `completed`. `title` nullable — 없으면 API에서 `{N}주차 예습 가이드` 자동 생성. |
+| `review_summaries` | 복습 요약본. 스케줄당 1개 (UNIQUE). `title` nullable — 없으면 API에서 `{N}주차 복습 요약본` 자동 생성. |
 | `announcements` | 공지문. 과목당 N개 가능. |
 | `lms_distributions` | LMS 배포 이력. `material_type + source_id` 조합으로 자료 식별 (폴리모픽). 참조 무결성은 앱 레이어에서 강제. |
 | `audios` | 업로드된 오디오. 실제 파일은 Storage. |
@@ -605,7 +615,7 @@ FastAPI는 JWT에서 `sub` 클레임을 추출하여 `profiles.id`와 매핑.
 
 | 테이블 | 설명 |
 |--------|------|
-| `dashboard_snapshots` | 과목별 집계 데이터 캐시. 퀴즈 제출/완료 이벤트마다 갱신. `weekly_stats` JSONB에 주차별 정답률, 업로드 현황 저장. |
+| `dashboard_snapshots` | 과목별 집계 데이터 캐시. 퀴즈 제출/완료 이벤트마다 갱신. `weak_topics` JSONB 배열 `[{topic, wrongRate, relatedQuizzes}]`. `weekly_stats` JSONB 배열 `[{weekNumber, averageScore, participationRate, previewDone, reviewDone, scriptDone}]`. |
 
 > 실시간 집계 대신 캐시 테이블을 두어 대시보드 조회 성능 확보.  
 > 퀴즈 `status = CLOSED` 이벤트 또는 자료 생성 완료 이벤트 트리거로 갱신.
@@ -617,7 +627,7 @@ FastAPI는 JWT에서 `sub` 클레임을 추출하여 `profiles.id`와 매핑.
 | 테이블 | 설명 |
 |--------|------|
 | `notifications` | 인앱 알림. `notification_type` enum. `metadata` JSONB에 딥링크용 리소스 ID 저장. |
-| `notification_settings` | 사용자별 알림 채널 및 유형 ON/OFF. 사용자당 1행 (UNIQUE). |
+| `notification_settings` | 사용자별 인앱 알림 채널(EMAIL\|PUSH\|IN_APP\|KAKAO) 및 유형(quiz_published\|material_ready\|deadline_reminder) ON/OFF. 사용자당 1행. 행이 없을 경우 API는 기본값(`모두 true`)으로 응답하며, 최초 PUT 요청 시 행을 생성(upsert). `reminder_settings`(마감 리마인더 전용)와 역할 분리. |
 
 ---
 
