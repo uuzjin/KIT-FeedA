@@ -225,6 +225,79 @@ def get_quiz(course_id: str, quiz_id: str, current_user: dict = Depends(get_curr
     return data
 
 
+# ── 5.1.5 퀴즈 문항 전체 수정 (PUT) ─────────────────────────────────────────
+class QuizQuestionUpdate(BaseModel):
+    questionId: str
+    content: str
+    options: list | None = None
+    answer: str
+    difficulty: str = "MEDIUM"
+
+
+class QuizUpdateRequest(BaseModel):
+    questions: list[QuizQuestionUpdate]
+
+
+@router.put("/{quiz_id}")
+def update_quiz_questions(
+    course_id: str,
+    quiz_id: str,
+    payload: QuizUpdateRequest,
+    current_user: dict = Depends(require_instructor),
+):
+    require_instructor_of(course_id, current_user["id"])
+
+    quiz = (
+        supabase.table("quizzes")
+        .select("id")
+        .eq("id", quiz_id)
+        .eq("course_id", course_id)
+        .maybe_single()
+        .execute()
+    )
+    if not quiz.data:
+        raise HTTPException(status_code=404, detail="퀴즈를 찾을 수 없습니다.")
+
+    for q in payload.questions:
+        supabase.table("quiz_questions").update({
+            "content": q.content,
+            "options": q.options,
+            "answer": q.answer,
+            "difficulty": q.difficulty,
+        }).eq("id", q.questionId).eq("quiz_id", quiz_id).execute()
+
+    result = (
+        supabase.table("quizzes")
+        .update({})
+        .eq("id", quiz_id)
+        .execute()
+    )
+    return {"quizId": quiz_id, "updatedAt": result.data[0]["updated_at"] if result.data else None}
+
+
+# ── 5.1.6 퀴즈 삭제 (DELETE) ─────────────────────────────────────────────────
+@router.delete("/{quiz_id}", status_code=204)
+def delete_quiz(
+    course_id: str,
+    quiz_id: str,
+    current_user: dict = Depends(require_instructor),
+):
+    require_instructor_of(course_id, current_user["id"])
+
+    result = (
+        supabase.table("quizzes")
+        .select("id")
+        .eq("id", quiz_id)
+        .eq("course_id", course_id)
+        .maybe_single()
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="퀴즈를 찾을 수 없습니다.")
+
+    supabase.table("quizzes").delete().eq("id", quiz_id).execute()
+
+
 # ── 5.1.2 난이도 수정 (PATCH) ─────────────────────────────────────────────────
 class QuizPatchRequest(BaseModel):
     difficultyLevel: str | None = None
@@ -413,6 +486,60 @@ def submit_quiz(
     }
 
 
+# ── 5.3.1 이해도 판정 ────────────────────────────────────────────────────────
+@router.get("/{quiz_id}/comprehension")
+def get_comprehension(
+    course_id: str,
+    quiz_id: str,
+    current_user: dict = Depends(require_instructor),
+):
+    require_instructor_of(course_id, current_user["id"])
+
+    submissions = (
+        supabase.table("quiz_submissions")
+        .select("score")
+        .eq("quiz_id", quiz_id)
+        .execute()
+    )
+    scores = [s["score"] for s in (submissions.data or [])]
+    if not scores:
+        raise HTTPException(status_code=404, detail="제출 데이터가 없습니다.")
+
+    overall_rate = round(sum(scores) / len(scores), 1)
+    if overall_rate >= 80:
+        level = "GOOD"
+    elif overall_rate >= 60:
+        level = "PARTIAL"
+    else:
+        level = "LOW"
+
+    # 문항별 정답률 (topic breakdown)
+    questions = (
+        supabase.table("quiz_questions")
+        .select("id, content")
+        .eq("quiz_id", quiz_id)
+        .execute()
+    )
+    topic_breakdown = []
+    total = len(scores)
+    for q in (questions.data or []):
+        correct = (
+            supabase.table("quiz_submission_answers")
+            .select("id", count="exact")
+            .eq("question_id", q["id"])
+            .eq("is_correct", True)
+            .execute()
+        ).count or 0
+        rate = round(correct / total * 100, 1) if total else 0.0
+        topic_breakdown.append({
+            "topic": q["content"][:50],
+            "rate": rate,
+            "level": "GOOD" if rate >= 80 else ("PARTIAL" if rate >= 60 else "LOW"),
+        })
+
+    return {"overallRate": overall_rate, "level": level, "topicBreakdown": topic_breakdown}
+
+
 # ── 5.3 퀴즈 결과 조회 (강사) ────────────────────────────────────────────────
 @router.get("/{quiz_id}/results")
 def get_quiz_results(
@@ -539,6 +666,104 @@ def get_analysis(
         "analysis": analysis.data,
         "suggestions": suggestions.data,
     }
+
+
+# ── 5.3.3-A 개선 제안 트리거 ─────────────────────────────────────────────────
+@router.post("/{quiz_id}/improvement-suggestions", status_code=202)
+@limiter.limit(AI_RATE_LIMIT)
+def trigger_improvement_suggestions(
+    request: Request,
+    course_id: str,
+    quiz_id: str,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(require_instructor),
+):
+    require_instructor_of(course_id, current_user["id"])
+
+    # 오답 분석 결과가 있어야 개선 제안 생성 가능
+    analysis = (
+        supabase.table("quiz_response_analyses")
+        .select("id, status, weak_concepts")
+        .eq("quiz_id", quiz_id)
+        .maybe_single()
+        .execute()
+    )
+    if not analysis.data or analysis.data["status"] != "completed":
+        raise HTTPException(status_code=400, detail="먼저 오답 분석을 완료하세요.")
+
+    supabase.table("quiz_improvement_suggestions").upsert(
+        {"quiz_id": quiz_id, "status": "pending"},
+        on_conflict="quiz_id",
+    ).execute()
+
+    rec = (
+        supabase.table("quiz_improvement_suggestions")
+        .select("id")
+        .eq("quiz_id", quiz_id)
+        .maybe_single()
+        .execute()
+    )
+    sug_id = rec.data["id"] if rec.data else None
+
+    weak_concepts = analysis.data.get("weak_concepts") or []
+    background_tasks.add_task(_run_improvement_suggestions, quiz_id, weak_concepts, sug_id)
+
+    return {
+        "suggestionId": sug_id,
+        "status": "pending",
+        "message": "제안 생성이 시작되었습니다. 완료 시 Supabase Realtime으로 반영됩니다.",
+    }
+
+
+# ── 5.3.3-B 개선 제안 조회 ───────────────────────────────────────────────────
+@router.get("/{quiz_id}/improvement-suggestions")
+def get_improvement_suggestions(
+    course_id: str,
+    quiz_id: str,
+    current_user: dict = Depends(require_instructor),
+):
+    require_instructor_of(course_id, current_user["id"])
+
+    result = (
+        supabase.table("quiz_improvement_suggestions")
+        .select("*")
+        .eq("quiz_id", quiz_id)
+        .maybe_single()
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="개선 제안이 없습니다. 먼저 생성을 요청하세요.")
+
+    row = result.data
+    suggestions = row.get("suggestions") or {}
+    return {
+        "suggestionId": row["id"],
+        "status": row["status"],
+        "suggestions": suggestions.get("items", []),
+        "startedAt": row.get("started_at"),
+        "completedAt": row.get("completed_at"),
+    }
+
+
+def _run_improvement_suggestions(quiz_id: str, weak_concepts: list[str], sug_id: str | None) -> None:
+    """취약 개념 기반 다음 수업 개선 제안 생성."""
+    from ..core.ai import call_sonnet_json
+    from ..prompts.quiz_generation import QUIZ_ANALYSIS_SYSTEM, quiz_analysis_user
+
+    if not sug_id:
+        return
+
+    from ..core.background import mark_completed, mark_failed, mark_processing
+    mark_processing("quiz_improvement_suggestions", sug_id)
+
+    try:
+        # 취약 개념 목록으로 개선 제안 생성
+        questions_data = [{"order_num": i + 1, "content": c, "wrong_rate": 70} for i, c in enumerate(weak_concepts)]
+        result = call_sonnet_json(QUIZ_ANALYSIS_SYSTEM, quiz_analysis_user(questions_data))
+        suggestions_content = result.get("next_class_suggestions", [])
+        mark_completed("quiz_improvement_suggestions", sug_id, {"items": suggestions_content})
+    except Exception as e:
+        mark_failed("quiz_improvement_suggestions", sug_id, str(e))
 
 
 def _run_response_analysis(quiz_id: str, course_id: str) -> None:
