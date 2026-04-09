@@ -22,6 +22,9 @@ backend/venv/
 backend/__pycache__/
 backend/**/*.pyc
 
+# Claude
+.claude/
+
 # Environment
 .env
 .env.local
