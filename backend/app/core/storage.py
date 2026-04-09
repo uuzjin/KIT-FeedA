@@ -1,4 +1,6 @@
 """Supabase Storage 유틸리티"""
+import re
+
 from fastapi import HTTPException, UploadFile
 
 from ..database import supabase
@@ -22,6 +24,19 @@ MAX_AUDIO_SIZE  = 500 * 1024 * 1024  # 500MB
 MAX_IMAGE_SIZE  = 5 * 1024 * 1024    # 5MB
 
 
+def _sanitize_filename(filename: str) -> str:
+    """경로 순회(path traversal) 및 제어 문자 방어."""
+    if not filename:
+        raise HTTPException(status_code=400, detail="파일명이 없습니다.")
+    # 경로 구분자 제거
+    name = re.sub(r"[/\\]", "_", filename)
+    # 제어 문자 제거
+    name = re.sub(r"[\x00-\x1f\x7f]", "", name)
+    if not name or name in (".", ".."):
+        raise HTTPException(status_code=400, detail="유효하지 않은 파일명입니다.")
+    return name
+
+
 def _validate_file(file: UploadFile, allowed_types: set[str], max_size: int) -> None:
     if file.content_type not in allowed_types:
         raise HTTPException(
@@ -39,6 +54,10 @@ async def upload_file(
     max_size: int,
 ) -> str:
     """파일을 Supabase Storage에 업로드하고 storage path를 반환."""
+    # 파일명 안전성 검증
+    if file.filename:
+        _sanitize_filename(file.filename)
+
     if file.content_type not in allowed_types:
         raise HTTPException(
             status_code=400,

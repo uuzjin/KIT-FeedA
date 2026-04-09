@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..core.auth import get_current_user, require_instructor
@@ -166,20 +168,29 @@ def get_student_quiz_history(
     )
     submissions = q.execute()
 
-    history = []
-    for sub in (submissions.data or []):
-        quiz_info = sub.get("quizzes") or {}
-        if courseId and quiz_info.get("course_id") != courseId:
-            continue
+    # courseId 필터 먼저 적용
+    filtered_subs = [
+        s for s in (submissions.data or [])
+        if not courseId or (s.get("quizzes") or {}).get("course_id") == courseId
+    ]
 
-        # 오답 조회
-        wrong_answers_result = (
+    # 오답 일괄 조회 — N+1 방지
+    sub_ids = [s["id"] for s in filtered_subs]
+    wrong_by_sub: dict[str, list] = defaultdict(list)
+    if sub_ids:
+        all_wrong = (
             supabase.table("quiz_submission_answers")
-            .select("question_id, selected_option, is_correct, quiz_questions(content, answer)")
-            .eq("submission_id", sub["id"])
+            .select("submission_id, question_id, selected_option, is_correct, quiz_questions(content, answer)")
+            .in_("submission_id", sub_ids)
             .eq("is_correct", False)
             .execute()
         )
+        for wa in (all_wrong.data or []):
+            wrong_by_sub[wa["submission_id"]].append(wa)
+
+    history = []
+    for sub in filtered_subs:
+        quiz_info = sub.get("quizzes") or {}
         wrong_answers = [
             {
                 "questionId": wa["question_id"],
@@ -187,7 +198,7 @@ def get_student_quiz_history(
                 "correctAnswer": wa["quiz_questions"]["answer"] if wa.get("quiz_questions") else None,
                 "selectedOption": wa.get("selected_option"),
             }
-            for wa in (wrong_answers_result.data or [])
+            for wa in wrong_by_sub.get(sub["id"], [])
         ]
 
         history.append({

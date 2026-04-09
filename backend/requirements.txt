@@ -13,3 +13,7 @@ pdfplumber
 python-pptx
 python-docx
 apscheduler
+slowapi
+pytest
+pytest-asyncio
+httpx

@@ -6,13 +6,40 @@
 
 함수 시그니처는 이전 구현과 동일하게 유지 — 라우터/프롬프트 변경 없음.
 """
+import hashlib
 import json
+import time
 from typing import Any
 
 from google import genai
 from google.genai import types
 
 from .config import settings
+
+# ── 인메모리 AI 응답 캐시 ──────────────────────────────────────────────────────
+_ai_cache: dict[str, tuple[Any, float]] = {}
+_CACHE_TTL = 3600  # 1시간 (초)
+
+
+def _cache_key(model: str, system: str, user: str) -> str:
+    raw = f"{model}\x00{system}\x00{user}"
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _cache_get(key: str) -> tuple[bool, Any]:
+    entry = _ai_cache.get(key)
+    if entry and time.time() - entry[1] < _CACHE_TTL:
+        return True, entry[0]
+    return False, None
+
+
+def _cache_set(key: str, value: Any) -> None:
+    _ai_cache[key] = (value, time.time())
+
+
+def clear_ai_cache() -> None:
+    """테스트 또는 수동 캐시 초기화용."""
+    _ai_cache.clear()
 
 # ── Gemini 클라이언트 초기화 ──────────────────────────────────────────────────
 _client = genai.Client(api_key=settings.GOOGLE_API_KEY)
@@ -75,24 +102,40 @@ def call_sonnet(system: str, user: str, max_tokens: int = 4096) -> str:
     return _call_gemini(_MODEL_PRO, system, user, max_tokens)
 
 
-def call_haiku_json(system: str, user: str, max_tokens: int = 2048) -> Any:
-    """Gemini Flash Lite JSON 응답."""
-    raw = call_haiku(
-        system,
-        user + "\n\n반드시 JSON만 출력하세요. 코드 블록(```json ... ```)을 사용해도 됩니다. 다른 설명은 출력하지 마세요.",
-        max_tokens,
-    )
-    return _parse_json(raw)
+def call_haiku_json(system: str, user: str, max_tokens: int = 2048, use_cache: bool = False) -> Any:
+    """Gemini Flash Lite JSON 응답.
+
+    use_cache=True 시 동일 입력에 대한 캐시 결과 반환 (GET 조회용 한정).
+    POST 비동기 생성 시에는 use_cache=False(기본값) 사용.
+    """
+    full_user = user + "\n\n반드시 JSON만 출력하세요. 코드 블록(```json ... ```)을 사용해도 됩니다. 다른 설명은 출력하지 마세요."
+    if use_cache:
+        key = _cache_key(_MODEL_FAST, system, full_user)
+        hit, cached = _cache_get(key)
+        if hit:
+            return cached
+        result = _parse_json(call_haiku(system, full_user, max_tokens))
+        _cache_set(key, result)
+        return result
+    return _parse_json(call_haiku(system, full_user, max_tokens))
 
 
-def call_sonnet_json(system: str, user: str, max_tokens: int = 4096) -> Any:
-    """Gemini Flash JSON 응답."""
-    raw = call_sonnet(
-        system,
-        user + "\n\n반드시 JSON만 출력하세요. 코드 블록(```json ... ```)을 사용해도 됩니다. 다른 설명은 출력하지 마세요.",
-        max_tokens,
-    )
-    return _parse_json(raw)
+def call_sonnet_json(system: str, user: str, max_tokens: int = 4096, use_cache: bool = False) -> Any:
+    """Gemini Flash JSON 응답.
+
+    use_cache=True 시 동일 입력에 대한 캐시 결과 반환 (GET 조회용 한정).
+    POST 비동기 생성 시에는 use_cache=False(기본값) 사용.
+    """
+    full_user = user + "\n\n반드시 JSON만 출력하세요. 코드 블록(```json ... ```)을 사용해도 됩니다. 다른 설명은 출력하지 마세요."
+    if use_cache:
+        key = _cache_key(_MODEL_PRO, system, full_user)
+        hit, cached = _cache_get(key)
+        if hit:
+            return cached
+        result = _parse_json(call_sonnet(system, full_user, max_tokens))
+        _cache_set(key, result)
+        return result
+    return _parse_json(call_sonnet(system, full_user, max_tokens))
 
 
 def transcribe_audio(file_path: str, file_name: str) -> dict:

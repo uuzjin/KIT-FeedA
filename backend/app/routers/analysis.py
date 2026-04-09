@@ -5,10 +5,11 @@
   POST /api/courses/{course_id}/scripts/{script_id}/post-analyses/concepts   → 202
   GET  /api/courses/{course_id}/scripts/{script_id}/post-analyses            → 결과 목록
 """
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 
 from ..core.auth import get_current_user, require_instructor
 from ..core.background import mark_completed, mark_failed, mark_processing
+from ..core.rate_limit import AI_RATE_LIMIT, limiter
 from ..database import supabase
 from ..dependencies import require_instructor_of
 
@@ -58,7 +59,9 @@ def _ensure_script_exists(course_id: str, script_id: str) -> None:
 # ── POST /structure ───────────────────────────────────────────────────────────
 
 @router.post("/structure", status_code=202)
+@limiter.limit(AI_RATE_LIMIT)
 def trigger_structure_analysis(
+    request: Request,
     course_id: str,
     script_id: str,
     background_tasks: BackgroundTasks,
@@ -101,9 +104,11 @@ def _run_structure(record_id: str | None, course_id: str, script_id: str) -> Non
         return
     mark_processing("script_post_analyses", record_id)
     try:
-        script_text = _get_script_text(course_id, script_id)
-        if not script_text:
+        from ..core.sanitize import sanitize_prompt_input
+        raw_text = _get_script_text(course_id, script_id)
+        if not raw_text:
             raise ValueError("스크립트 텍스트를 추출할 수 없습니다.")
+        script_text = sanitize_prompt_input(raw_text)
         result = call_haiku_json(STRUCTURE_SYSTEM, structure_user(script_text))
         mark_completed("script_post_analyses", record_id, result)
     except Exception as e:
@@ -113,7 +118,9 @@ def _run_structure(record_id: str | None, course_id: str, script_id: str) -> Non
 # ── POST /concepts ────────────────────────────────────────────────────────────
 
 @router.post("/concepts", status_code=202)
+@limiter.limit(AI_RATE_LIMIT)
 def trigger_concepts_analysis(
+    request: Request,
     course_id: str,
     script_id: str,
     background_tasks: BackgroundTasks,
@@ -155,9 +162,11 @@ def _run_concepts(record_id: str | None, course_id: str, script_id: str) -> None
         return
     mark_processing("script_post_analyses", record_id)
     try:
-        script_text = _get_script_text(course_id, script_id)
-        if not script_text:
+        from ..core.sanitize import sanitize_prompt_input
+        raw_text = _get_script_text(course_id, script_id)
+        if not raw_text:
             raise ValueError("스크립트 텍스트를 추출할 수 없습니다.")
+        script_text = sanitize_prompt_input(raw_text)
         result = call_haiku_json(CONCEPTS_SYSTEM, concepts_user(script_text))
         mark_completed("script_post_analyses", record_id, result)
     except Exception as e:

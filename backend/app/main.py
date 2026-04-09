@@ -3,8 +3,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from .core.errors import AppError, app_error_handler, http_exception_handler, validation_exception_handler
+from .core.rate_limit import limiter
 from .core.scheduler import cleanup_deleted_accounts, scheduler, send_pending_reminders
 from .database import supabase
 from .routers import (
@@ -35,6 +38,14 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="FeedA API", version="0.1.0", lifespan=lifespan)
+
+# ── Rate Limiter ───────────────────────────────────────────────────────────────
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, lambda req, exc: __import__("fastapi").responses.JSONResponse(
+    status_code=429,
+    content={"detail": "요청 횟수 제한을 초과했습니다. 잠시 후 다시 시도하세요."},
+))
+app.add_middleware(SlowAPIMiddleware)
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
 app.add_middleware(
