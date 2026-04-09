@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3:*)",
+      "Bash(powershell.exe:*)",
+      "Bash(python -c \"from app.main import app; print\\('OK'\\)\")",
+      "Bash(.venv/Scripts/pip install:*)",
+      "Bash(\"C:/Users/tjsl0/OneDrive/바탕 화면/2026-1-APPS/KIT-FeedA/.venv/Scripts/python\" -c \"from app.main import app; print\\('OK'\\)\")",
+      "Bash('C:/Users/tjsl0/OneDrive/바탕 화면/2026-1-APPS/KIT-FeedA/.venv/Scripts/python' -c ':*)",
+      "Bash(\"C:/Users/tjsl0/OneDrive/바탕 화면/2026-1-APPS/KIT-FeedA/.venv/Scripts/python\" -c \"from app.main import app; from app.core.ai import call_haiku_json, call_sonnet_json, transcribe_audio; print\\('OK'\\)\")",
+      "Bash(\"C:/Users/tjsl0/OneDrive/바탕 화면/2026-1-APPS/KIT-FeedA/venv/Scripts/python.exe\" -c \"from app.routers import content, analysis; print\\('routers OK'\\)\")",
+      "Bash('C:/Users/tjsl0/OneDrive/바탕 화면/2026-1-APPS/KIT-FeedA/venv/Scripts/python.exe' -c 'import sys; sys.path.insert\\(0, '\\\\''.'\\\\''\\); import ast, os:*)",
+      "Bash('C:/Users/tjsl0/OneDrive/바탕 화면/2026-1-APPS/KIT-FeedA/venv/Scripts/python.exe' -c ':*)",
+      "Bash(.venv/Scripts/python.exe -c \"from backend.app.main import app; print\\('OK'\\)\")",
+      "Bash(.venv/Scripts/python.exe -c ':*)",
+      "Bash(.\\\\.venv\\\\Scripts\\\\pip install:*)",
+      "Bash(python -m pip install slowapi pytest pytest-asyncio httpx)",
+      "Bash(python -m pytest tests/ -v --tb=short)",
+      "Bash(\"/c/Users/tjsl0/OneDrive/바탕 화면/2026-1-APPS/KIT-FeedA/venv/Scripts/pip.exe\" list)",
+      "Bash(python:*)",
+      "Bash(where python:*)",
+      "Bash(/c/Users/tjsl0/AppData/Local/Programs/Python/Python313/python.exe:*)",
+      "Bash(/c/Users/tjsl0/OneDrive/바탕 화면/2026-1-APPS/KIT-FeedA/.venv/Scripts/python.exe:*)",
+      "Bash(\"/c/Users/tjsl0/OneDrive/바탕 화면/2026-1-APPS/KIT-FeedA/.venv/Scripts/pip.exe\" install slowapi pytest pytest-asyncio httpx)",
+      "Bash(\"/c/Users/tjsl0/OneDrive/바탕 화면/2026-1-APPS/KIT-FeedA/.venv/Scripts/python.exe\" -m pytest tests/ -v --tb=short)",
+      "Bash(\"/c/Users/tjsl0/OneDrive/바탕 화면/2026-1-APPS/KIT-FeedA/.venv/Scripts/pip.exe\" install apscheduler)",
+      "Bash(git:*)",
+      "Bash(.venv/Scripts/python.exe -m pytest tests/ -v)",
+      "Bash(.venv/Scripts/python.exe -m pytest backend/tests/ -v)",
+      "Bash(.venv/Scripts/python.exe -m pytest backend/tests/ -v --tb=short)"
+    ]
+  }
+}
