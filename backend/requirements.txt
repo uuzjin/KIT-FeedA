@@ -12,3 +12,4 @@ faster-whisper
 pdfplumber
 python-pptx
 python-docx
+apscheduler
