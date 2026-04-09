@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-import { BookOpen, Clock, FileText, Users, TrendingUp, AlertCircle, Sparkles } from "lucide-react";
+import { BookOpen, Clock, FileText, Users, TrendingUp, AlertCircle } from "lucide-react";
 
 const upcomingDeadlines = [
   { id: 1, title: "DB 예습 자료 업로드", dueDate: "2024-03-15", course: "데이터베이스 개론", urgent: true },
@@ -27,21 +27,7 @@ const weeklyStats = [
 
 export function DashboardContent() {
   return (
-    <div className="flex flex-col gap-5 p-4">
-      {/* 환영 메시지 */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary via-primary to-accent p-5 text-primary-foreground shadow-lg">
-        <div className="absolute -right-6 -top-6 size-32 rounded-full bg-white/10 blur-2xl" />
-        <div className="absolute -bottom-8 -left-8 size-40 rounded-full bg-white/5 blur-3xl" />
-        <div className="relative">
-          <div className="flex items-center gap-2">
-            <Sparkles className="size-5" />
-            <span className="text-sm font-medium text-primary-foreground/80">{"Good Morning"}</span>
-          </div>
-          <h1 className="mt-1 text-xl font-bold">{"안녕하세요, 김교수님!"}</h1>
-          <p className="mt-1 text-sm text-primary-foreground/80">{"오늘도 멋진 강의가 되길 바랍니다"}</p>
-        </div>
-      </div>
-
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 p-4">
       {/* 주간 통계 */}
       <ScrollArea className="w-full">
         <div className="flex gap-3 pb-3">

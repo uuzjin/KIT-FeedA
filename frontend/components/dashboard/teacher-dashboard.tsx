@@ -82,23 +82,16 @@ export function TeacherDashboard() {
   }, [summary]);
 
   return (
-    <div className="flex flex-col gap-5 p-4 pb-24">
-      {/* 환영 메시지 */}
-      <div className="rounded-2xl bg-gradient-to-br from-primary via-primary to-primary/80 p-5 text-primary-foreground shadow-lg shadow-primary/20">
-        <h1 className="text-xl font-bold">{"안녕하세요, 김교수님"}</h1>
-        <p className="mt-1 text-sm text-primary-foreground/80">
-          {"오늘도 좋은 강의 되세요!"}
-        </p>
-        <div className="mt-4 flex gap-2">
-          <Button size="sm" variant="secondary" className="gap-2 bg-white/20 text-white hover:bg-white/30">
-            <Upload className="size-4" />
-            {"자료 업로드"}
-          </Button>
-          <Button size="sm" variant="secondary" className="gap-2 bg-white/20 text-white hover:bg-white/30">
-            <Sparkles className="size-4" />
-            {"AI 분석"}
-          </Button>
-        </div>
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 p-4 pb-24">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" className="gap-2">
+          <Upload className="size-4" />
+          {"자료 업로드"}
+        </Button>
+        <Button size="sm" variant="secondary" className="gap-2">
+          <Sparkles className="size-4" />
+          {"AI 분석"}
+        </Button>
       </div>
 
       {/* 주간 통계 */}

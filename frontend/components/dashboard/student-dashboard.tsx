@@ -81,23 +81,16 @@ export function StudentDashboard() {
   }, [summary]);
 
   return (
-    <div className="flex flex-col gap-5 p-4 pb-24">
-      {/* 환영 메시지 */}
-      <div className="rounded-2xl bg-gradient-to-br from-primary via-primary to-primary/80 p-5 text-primary-foreground shadow-lg shadow-primary/20">
-        <h1 className="text-xl font-bold">{"안녕하세요, 이학생님"}</h1>
-        <p className="mt-1 text-sm text-primary-foreground/80">
-          {"오늘도 열심히 공부해봐요!"}
-        </p>
-        <div className="mt-4 flex gap-2">
-          <Button size="sm" variant="secondary" className="gap-2 bg-white/20 text-white hover:bg-white/30">
-            <Play className="size-4" />
-            {"퀴즈 시작"}
-          </Button>
-          <Button size="sm" variant="secondary" className="gap-2 bg-white/20 text-white hover:bg-white/30">
-            <BookOpen className="size-4" />
-            {"학습 자료"}
-          </Button>
-        </div>
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 p-4 pb-24">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" className="gap-2">
+          <Play className="size-4" />
+          {"퀴즈 시작"}
+        </Button>
+        <Button size="sm" variant="secondary" className="gap-2">
+          <BookOpen className="size-4" />
+          {"학습 자료"}
+        </Button>
       </div>
 
       {/* 주간 통계 */}
