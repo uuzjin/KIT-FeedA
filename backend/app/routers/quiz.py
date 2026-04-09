@@ -1,8 +1,9 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from ..core.auth import get_current_user, require_instructor
 from ..core.background import mark_completed, mark_failed, mark_processing, mark_status
+from ..core.rate_limit import AI_RATE_LIMIT, limiter
 from ..database import supabase
 from ..dependencies import require_instructor_of
 
@@ -487,7 +488,9 @@ def get_quiz_results(
 
 # ── 5.3.2 오답 분석 트리거 ────────────────────────────────────────────────────
 @router.post("/{quiz_id}/analyze", status_code=202)
+@limiter.limit(AI_RATE_LIMIT)
 def trigger_analysis(
+    request: Request,
     course_id: str,
     quiz_id: str,
     background_tasks: BackgroundTasks,

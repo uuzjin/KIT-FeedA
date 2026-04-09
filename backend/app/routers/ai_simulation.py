@@ -16,11 +16,12 @@
 """
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from ..core.auth import get_current_user, require_instructor
 from ..core.background import mark_failed, mark_processing
+from ..core.rate_limit import AI_RATE_LIMIT, limiter
 from ..database import supabase
 from ..dependencies import require_instructor_of
 
@@ -99,6 +100,9 @@ def _load_script_text(script_ids: list[str], course_id: str) -> tuple[str, int]:
             continue
 
     combined = "\n\n".join(parts)
+    # 프롬프트 인젝션 방어
+    from ..core.sanitize import sanitize_prompt_input
+    combined = sanitize_prompt_input(combined)
     # 한국어 포함 문서: 글자 수 / 2 ≈ 토큰 (rough estimate)
     token_estimate = max(1, len(combined) // 2)
     return combined, token_estimate
@@ -278,7 +282,9 @@ class AssessmentCreateRequest(BaseModel):
 
 
 @router.post("/assessments", status_code=202)
+@limiter.limit(AI_RATE_LIMIT)
 def create_assessment(
+    request: Request,
     course_id: str,
     payload: AssessmentCreateRequest,
     background_tasks: BackgroundTasks,
@@ -390,7 +396,9 @@ class AnswerCreateRequest(BaseModel):
 
 
 @router.post("/assessments/{assessment_id}/answers", status_code=202)
+@limiter.limit(AI_RATE_LIMIT)
 def create_answers(
+    request: Request,
     course_id: str,
     assessment_id: str,
     payload: AnswerCreateRequest,
@@ -543,7 +551,9 @@ def get_answers(
 # ═════════════════════════════════════════════════════════════════════════════
 
 @router.post("/assessments/{assessment_id}/grades", status_code=202)
+@limiter.limit(AI_RATE_LIMIT)
 def create_grades(
+    request: Request,
     course_id: str,
     assessment_id: str,
     background_tasks: BackgroundTasks,
@@ -693,7 +703,9 @@ def get_grades(
 # ═════════════════════════════════════════════════════════════════════════════
 
 @router.post("/assessments/{assessment_id}/quality-reports", status_code=202)
+@limiter.limit(AI_RATE_LIMIT)
 def create_quality_report(
+    request: Request,
     course_id: str,
     assessment_id: str,
     background_tasks: BackgroundTasks,
@@ -828,7 +840,9 @@ class QaPairsCreateRequest(BaseModel):
 
 
 @router.post("/assessments/{assessment_id}/qa-pairs", status_code=202)
+@limiter.limit(AI_RATE_LIMIT)
 def create_qa_pairs(
+    request: Request,
     course_id: str,
     assessment_id: str,
     payload: QaPairsCreateRequest,

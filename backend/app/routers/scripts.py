@@ -102,11 +102,14 @@ def _run_structural_analysis(script_id: str, storage_path: str, mime_type: str) 
     # Storage에서 파일 다운로드
     try:
         file_bytes: bytes = supabase.storage.from_(BUCKET_SCRIPTS).download(storage_path)
-        script_text = extract_text(file_bytes, mime_type)
+        raw_text = extract_text(file_bytes, mime_type)
     except Exception as e:
         for rid in record_map.values():
             mark_failed("script_analyses", rid, f"파일 읽기 실패: {str(e)}")
         return
+
+    from ..core.sanitize import sanitize_prompt_input
+    script_text = sanitize_prompt_input(raw_text)
 
     # 세 가지 분석 실행
     analysis_tasks = [

@@ -6,10 +6,11 @@
   POST /api/courses/{course_id}/schedules/{schedule_id}/review-summaries → 202
   GET  /api/courses/{course_id}/schedules/{schedule_id}/review-summaries
 """
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 
 from ..core.auth import get_current_user, require_instructor
 from ..core.background import mark_failed
+from ..core.rate_limit import AI_RATE_LIMIT, limiter
 from ..database import supabase
 from ..dependencies import require_instructor_of
 
@@ -112,7 +113,9 @@ def _format_preview_guide(row: dict) -> dict:
 
 
 @preview_router.post("", status_code=202)
+@limiter.limit(AI_RATE_LIMIT)
 def generate_preview_guide(
+    request: Request,
     course_id: str,
     schedule_id: str,
     background_tasks: BackgroundTasks,
@@ -175,7 +178,8 @@ def _run_preview_guide(
     from ..prompts.content_generation import PREVIEW_GUIDE_SYSTEM, preview_guide_user
 
     try:
-        script_text = _get_script_text(course_id, schedule_id)
+        from ..core.sanitize import sanitize_prompt_input
+        script_text = sanitize_prompt_input(_get_script_text(course_id, schedule_id))
         result = call_sonnet_json(
             PREVIEW_GUIDE_SYSTEM,
             preview_guide_user(topic, week_number, script_text),
@@ -249,7 +253,9 @@ def get_preview_guide(
 # ═════════════════════════════════════════════════════════════════════════════
 
 @review_router.post("", status_code=202)
+@limiter.limit(AI_RATE_LIMIT)
 def generate_review_summary(
+    request: Request,
     course_id: str,
     schedule_id: str,
     background_tasks: BackgroundTasks,
@@ -312,8 +318,9 @@ def _run_review_summary(
     from ..prompts.content_generation import REVIEW_SUMMARY_SYSTEM, review_summary_user
 
     try:
-        script_text = _get_script_text(course_id, schedule_id)
-        transcript_text = _get_transcript_text(course_id, schedule_id)
+        from ..core.sanitize import sanitize_prompt_input
+        script_text = sanitize_prompt_input(_get_script_text(course_id, schedule_id))
+        transcript_text = sanitize_prompt_input(_get_transcript_text(course_id, schedule_id))
 
         result = call_sonnet_json(
             REVIEW_SUMMARY_SYSTEM,

@@ -1,7 +1,8 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from ..core.auth import get_current_user, require_instructor
+from ..core.rate_limit import AI_RATE_LIMIT, limiter
 from ..database import supabase
 from ..dependencies import require_instructor_of
 
@@ -36,7 +37,9 @@ def _format_announcement(row: dict) -> dict:
 
 # ── 6.3.1 공지문 자동 생성 트리거 ────────────────────────────────────────────
 @router.post("", status_code=202)
+@limiter.limit(AI_RATE_LIMIT)
 def generate_announcement(
+    request: Request,
     course_id: str,
     payload: AnnouncementGenerateRequest,
     background_tasks: BackgroundTasks,
