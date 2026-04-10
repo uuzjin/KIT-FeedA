@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,15 +14,15 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { FieldGroup, Field, FieldLabel } from "@/components/ui/field";
-import { GraduationCap, Eye, EyeOff, Loader2 } from "lucide-react";
+import { Eye, EyeOff, Loader2 } from "lucide-react";
 
 export default function LoginPage() {
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const { login } = useAuth();
+  const { signIn } = useAuth();
   const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -29,14 +30,26 @@ export default function LoginPage() {
     setError("");
     setIsLoading(true);
 
-    const success = await login(username, password);
+    try {
+      const success = await signIn(email, password);
 
-    if (success) {
-      router.push("/");
-    } else {
-      setError("아이디 또는 비밀번호가 올바르지 않습니다.");
+      if (success) {
+        router.push("/");
+      } else {
+        setError("로그인에 실패했습니다. 다시 시도해주세요.");
+      }
+    } catch (err) {
+      let errorMessage = "로그인 중 오류가 발생했습니다.";
+      
+      if (err instanceof Error) {
+        errorMessage = err.message;
+      }
+      
+      setError(errorMessage);
+      console.error("Login error:", err);
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   return (
@@ -45,9 +58,6 @@ export default function LoginPage() {
         <img src="/logo.svg" alt="KIT FeedA" className="width-30" />
 
         <div className="text-center">
-          {/* <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            {"FeedA"}
-          </h1> */}
           <p className="text-sm text-muted-foreground">
             {"더 나은 학습 환경을 피워내다"}
           </p>
@@ -63,13 +73,13 @@ export default function LoginPage() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <FieldGroup>
               <Field>
-                <FieldLabel htmlFor="username">{"아이디"}</FieldLabel>
+                <FieldLabel htmlFor="email">{"이메일"}</FieldLabel>
                 <Input
-                  id="username"
-                  type="text"
-                  placeholder="아이디를 입력하세요"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  id="email"
+                  type="email"
+                  placeholder="이메일을 입력하세요"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                   className="h-11"
                   required
                 />
@@ -121,24 +131,16 @@ export default function LoginPage() {
             </Button>
           </form>
 
-          <div className="mt-6 rounded-lg bg-muted/50 p-4">
-            <p className="mb-2 text-center text-xs font-medium text-muted-foreground">
-              {"테스트 계정"}
+          <div className="mt-6 border-t pt-4">
+            <p className="text-center text-sm text-muted-foreground">
+              {"아직 계정이 없으신가요?"}
+              <Link
+                href="/register"
+                className="ml-1 font-medium text-primary hover:underline"
+              >
+                {"회원가입"}
+              </Link>
             </p>
-            <div className="flex flex-col gap-2 text-xs">
-              <div className="flex items-center justify-between rounded-md bg-card px-3 py-2">
-                <span className="font-medium text-foreground">{"강사"}</span>
-                <span className="text-muted-foreground">
-                  {"teacher / teacher"}
-                </span>
-              </div>
-              <div className="flex items-center justify-between rounded-md bg-card px-3 py-2">
-                <span className="font-medium text-foreground">{"학생"}</span>
-                <span className="text-muted-foreground">
-                  {"student / student"}
-                </span>
-              </div>
-            </div>
           </div>
         </CardContent>
       </Card>

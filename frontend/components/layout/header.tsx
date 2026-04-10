@@ -32,6 +32,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
+import { EditProfileModal } from "@/components/profile/edit-profile-modal";
+import { DeleteAccountDialog } from "@/components/profile/delete-account-dialog";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
@@ -110,21 +112,27 @@ const studentCourses = [
 
 export function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [notifications, setNotifications] = useState({
     quiz: true,
     material: true,
     deadline: true,
   });
-  const { user, logout } = useAuth();
+  const { user, signOut } = useAuth();
   const router = useRouter();
 
-  const handleLogout = () => {
-    logout();
-    router.push("/login");
+  const handleLogout = async () => {
+    try {
+      await signOut();
+      router.push("/login");
+    } catch (error) {
+      console.error("Logout failed:", error);
+    }
   };
 
-  const courses = user?.role === "teacher" ? teacherCourses : studentCourses;
-  const isTeacher = user?.role === "teacher";
+  const courses = user?.role === "TEACHER" ? teacherCourses : studentCourses;
+  const isTeacher = user?.role === "TEACHER";
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-card/95 backdrop-blur-sm supports-[backdrop-filter]:bg-card/80">
@@ -300,7 +308,10 @@ export function Header() {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="cursor-pointer rounded-lg p-3">
+            <DropdownMenuItem
+              className="cursor-pointer rounded-lg p-3"
+              onClick={() => setIsProfileModalOpen(true)}
+            >
               <User className="mr-3 size-4 text-muted-foreground" />
               {"프로필 설정"}
             </DropdownMenuItem>
@@ -317,8 +328,8 @@ export function Header() {
               {"로그아웃"}
             </DropdownMenuItem>
             <DropdownMenuItem
-              variant="destructive"
-              className="cursor-pointer rounded-lg p-3"
+              className="cursor-pointer rounded-lg p-3 text-destructive focus:text-destructive"
+              onClick={() => setIsDeleteDialogOpen(true)}
             >
               <Trash2 className="mr-3 size-4" />
               {"회원 탈퇴"}
@@ -326,6 +337,15 @@ export function Header() {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      <EditProfileModal
+        open={isProfileModalOpen}
+        onOpenChange={setIsProfileModalOpen}
+      />
+      <DeleteAccountDialog
+        open={isDeleteDialogOpen}
+        onOpenChange={setIsDeleteDialogOpen}
+      />
     </header>
   );
 }
