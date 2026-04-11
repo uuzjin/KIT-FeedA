@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +31,7 @@ import {
 } from "@/lib/api";
 
 export function TeacherDashboard() {
+  const router = useRouter();
   const [trends, setTrends] = useState<ComprehensionTrendItem[]>([]);
   const [weakTopics, setWeakTopics] = useState<WeakTopicItem[]>([]);
   const [uploadStatus, setUploadStatus] = useState<UploadStatusItem[]>([]);
@@ -136,11 +138,20 @@ export function TeacherDashboard() {
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 p-4 pb-24">
       <div className="flex flex-wrap items-center gap-2">
-        <Button size="sm" className="gap-2">
+        <Button 
+          size="sm" 
+          className="gap-2"
+          onClick={() => router.push("/materials")}
+        >
           <Upload className="size-4" />
           {"자료 업로드"}
         </Button>
-        <Button size="sm" variant="secondary" className="gap-2">
+        <Button 
+          size="sm" 
+          variant="secondary" 
+          className="gap-2"
+          onClick={() => router.push("/analysis")}
+        >
           <Sparkles className="size-4" />
           {"AI 분석"}
         </Button>

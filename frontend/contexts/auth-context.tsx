@@ -93,15 +93,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         profileImageUrl: profile.profileImageUrl,
       });
     } catch (error) {
-      console.warn("Failed to fetch user profile, using default:", error);
-      // Profile might not exist yet, create a temporary user object
-      // This happens right after signup before the profile is created
-      setUser({
-        id: userId,
-        email: "",
-        name: "사용자",
-        role: "STUDENT",
-      });
+      console.warn("Failed to fetch user profile from API, using Supabase metadata:", error);
+      // Profile might not exist yet, use Supabase auth metadata as fallback
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      
+      if (session?.user) {
+        const authRole = (session.user.user_metadata?.role as UserRole) || "STUDENT";
+        const authEmail = session.user.email || "";
+        const authName = session.user.user_metadata?.name || authEmail.split("@")[0];
+        
+        setUser({
+          id: userId,
+          email: authEmail,
+          name: authName,
+          role: authRole,
+          profileImageUrl: session.user.user_metadata?.profileImageUrl,
+        });
+      } else {
+        // Fallback if no session
+        setUser({
+          id: userId,
+          email: "",
+          name: "사용자",
+          role: "STUDENT",
+        });
+      }
     }
   };
 
@@ -124,6 +142,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
       if (error) {
+        // Handle specific Supabase errors
+        if (error.message.includes("already registered") || error.message.includes("already in use")) {
+          throw new Error("이미 등록된 이메일입니다.");
+        }
         throw error;
       }
 

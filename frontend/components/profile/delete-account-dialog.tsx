@@ -33,29 +33,51 @@ export function DeleteAccountDialog({
   const [isLoading, setIsLoading] = useState(false);
 
   const handleDelete = async () => {
-    if (!supabaseUser) return;
+    if (!supabaseUser) {
+      toast({
+        title: "오류",
+        description: "로그인된 사용자가 없습니다.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     setIsLoading(true);
 
     try {
+      // Call backend to delete user account
       await deleteUserAccount(supabaseUser.id);
 
       toast({
         title: "계정이 삭제되었습니다.",
-        description: "계정 삭제가 완료되었습니다.",
+        description: "모든 데이터가 영구적으로 삭제되었습니다.",
       });
 
-      await signOut();
+      // Sign out to clear session
+      try {
+        await signOut();
+      } catch (signOutError) {
+        console.warn("Sign out after delete warning:", signOutError);
+        // Continue anyway, user session should be invalid without the DB record
+      }
+
+      // Close dialog and redirect
       onOpenChange(false);
-      router.push("/login");
+      
+      // Small delay to ensure toast is visible
+      setTimeout(() => {
+        router.push("/login");
+      }, 1000);
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : "계정 삭제에 실패했습니다.";
+      
       toast({
         title: "오류",
         description: errorMessage,
         variant: "destructive",
       });
+      console.error("Delete account error:", err);
     } finally {
       setIsLoading(false);
     }

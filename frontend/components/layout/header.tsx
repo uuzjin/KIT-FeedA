@@ -315,10 +315,6 @@ export function Header() {
               <User className="mr-3 size-4 text-muted-foreground" />
               {"프로필 설정"}
             </DropdownMenuItem>
-            <DropdownMenuItem className="cursor-pointer rounded-lg p-3">
-              <Settings className="mr-3 size-4 text-muted-foreground" />
-              {"계정 설정"}
-            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               className="cursor-pointer rounded-lg p-3"

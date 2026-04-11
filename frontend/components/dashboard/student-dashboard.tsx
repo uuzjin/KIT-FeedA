@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +27,7 @@ import {
 } from "@/lib/api";
 
 export function StudentDashboard() {
+  const router = useRouter();
   const [quizHistory, setQuizHistory] = useState<QuizSubmissionHistory[]>([]);
   const [materials, setMaterials] = useState<StudentMaterialItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -153,11 +155,20 @@ export function StudentDashboard() {
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 p-4 pb-24">
       <div className="flex flex-wrap items-center gap-2">
-        <Button size="sm" className="gap-2">
+        <Button 
+          size="sm" 
+          className="gap-2"
+          onClick={() => router.push("/quiz")}
+        >
           <Play className="size-4" />
           {"퀴즈 시작"}
         </Button>
-        <Button size="sm" variant="secondary" className="gap-2">
+        <Button 
+          size="sm" 
+          variant="secondary" 
+          className="gap-2"
+          onClick={() => router.push("/materials")}
+        >
           <BookOpen className="size-4" />
           {"학습 자료"}
         </Button>
