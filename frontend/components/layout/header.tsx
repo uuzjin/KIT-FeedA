@@ -131,8 +131,8 @@ export function Header() {
     }
   };
 
-  const courses = user?.role === "TEACHER" ? teacherCourses : studentCourses;
-  const isTeacher = user?.role === "TEACHER";
+  const courses = user?.role === "INSTRUCTOR" ? teacherCourses : studentCourses;
+  const isTeacher = user?.role === "INSTRUCTOR";
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-card/95 backdrop-blur-sm supports-[backdrop-filter]:bg-card/80">

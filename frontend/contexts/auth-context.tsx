@@ -11,7 +11,7 @@ import { supabase } from "@/lib/supabase/client";
 import { getUserProfile, UserProfile } from "@/lib/api";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 
-export type UserRole = "TEACHER" | "STUDENT" | "ADMIN";
+export type UserRole = "INSTRUCTOR" | "STUDENT" | "ADMIN";
 
 export interface User {
   id: string;
@@ -25,10 +25,12 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isHydrated: boolean;
-  signUp: (email: string, password: string, name?: string) => Promise<{ user: SupabaseUser; session: any } | null>;
+  signUp: (email: string, password: string, name?: string, role?: "INSTRUCTOR" | "STUDENT") => Promise<{ user: SupabaseUser; session: any } | null>;
   signIn: (email: string, password: string) => Promise<boolean>;
   signOut: () => Promise<void>;
   deleteAccount: () => Promise<void>;
+  resetPasswordForEmail: (email: string) => Promise<void>;
+  updatePassword: (password: string) => Promise<void>;
   supabaseUser: SupabaseUser | null;
 }
 
@@ -103,7 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const signUp = async (email: string, password: string, name?: string) => {
+  const signUp = async (email: string, password: string, name?: string, role: "INSTRUCTOR" | "STUDENT" = "STUDENT") => {
     try {
       // Validate inputs
       if (!email || !password) {
@@ -116,7 +118,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         options: {
           data: {
             name: name || email.split("@")[0],
-            role: "STUDENT",
+            role: role,
           },
         },
       });
@@ -193,7 +195,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const deleteAccount = async () => {
     if (!supabaseUser) {
-      throw new Error("No user logged in");
+      throw new Error("로그인된 사용자가 없습니다.");
     }
 
     try {
@@ -203,6 +205,52 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error("Delete account error:", error);
       throw error;
+    }
+  };
+
+  const resetPasswordForEmail = async (email: string) => {
+    try {
+      if (!email) {
+        throw new Error("이메일을 입력해주세요.");
+      }
+
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+
+      if (error) {
+        throw error;
+      }
+    } catch (error) {
+      console.error("Reset password error:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : "비밀번호 재설정 요청에 실패했습니다.";
+      throw new Error(errorMessage);
+    }
+  };
+
+  const updatePassword = async (password: string) => {
+    try {
+      if (!password) {
+        throw new Error("새 비밀번호를 입력해주세요.");
+      }
+
+      if (password.length < 8) {
+        throw new Error("비밀번호는 최소 8자 이상이어야 합니다.");
+      }
+
+      const { error } = await supabase.auth.updateUser({
+        password: password,
+      });
+
+      if (error) {
+        throw error;
+      }
+    } catch (error) {
+      console.error("Update password error:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : "비밀번호 수정에 실패했습니다.";
+      throw new Error(errorMessage);
     }
   };
 

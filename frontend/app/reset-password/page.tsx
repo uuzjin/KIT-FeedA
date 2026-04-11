@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,24 +13,39 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { FieldGroup, Field, FieldLabel } from "@/components/ui/field";
-import { Eye, EyeOff, Loader2, Check } from "lucide-react";
+import { Eye, EyeOff, Loader2, Check, AlertCircle } from "lucide-react";
+import { supabase } from "@/lib/supabase/client";
 
-export default function RegisterPage() {
-  const [email, setEmail] = useState("");
-  const [name, setName] = useState("");
+export default function ResetPasswordPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [role, setRole] = useState<"STUDENT" | "INSTRUCTOR">("STUDENT");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
-  const { signUp } = useAuth();
+  const [isValidLink, setIsValidLink] = useState(true);
+  const { updatePassword } = useAuth();
   const router = useRouter();
 
+  // Check if user has valid session (from reset link)
+  useEffect(() => {
+    const checkSession = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session) {
+        setIsValidLink(false);
+        setError("유효하지 않은 재설정 링크입니다. 다시 시도해주세요.");
+      }
+    };
+
+    checkSession();
+  }, []);
+
   const validateForm = (): boolean => {
-    if (!email || !name || !password || !confirmPassword) {
+    if (!password || !confirmPassword) {
       setError("모든 필드를 입력해주세요.");
       return false;
     }
@@ -46,19 +60,13 @@ export default function RegisterPage() {
       return false;
     }
 
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      setError("올바른 이메일 주소를 입력해주세요.");
-      return false;
-    }
-
     return true;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    
+
     if (!validateForm()) {
       return;
     }
@@ -66,38 +74,55 @@ export default function RegisterPage() {
     setIsLoading(true);
 
     try {
-      const result = await signUp(email, password, name, role);
-
-      if (result) {
-        setIsSuccess(true);
-        setTimeout(() => {
-          router.push("/login");
-        }, 2000);
-      } else {
-        setError("회원가입에 실패했습니다. 다시 시도해주세요.");
-      }
+      await updatePassword(password);
+      setIsSuccess(true);
+      setTimeout(() => {
+        router.push("/login");
+      }, 2000);
     } catch (err) {
-      // Handle various error types
-      let errorMessage = "회원가입 중 오류가 발생했습니다.";
-      
+      let errorMessage = "비밀번호 변경에 실패했습니다.";
+
       if (err instanceof Error) {
-        if (err.message.includes("User already registered")) {
-          errorMessage = "이미 등록된 이메일입니다.";
-        } else if (err.message.includes("Invalid")) {
-          errorMessage = "입력값을 다시 확인해주세요.";
-        } else if (err.message.includes("Network")) {
-          errorMessage = "네트워크 연결을 확인해주세요.";
-        } else {
-          errorMessage = err.message;
-        }
+        errorMessage = err.message;
       }
-      
+
       setError(errorMessage);
-      console.error("Sign up error:", err);
+      console.error("Reset password error:", err);
     } finally {
       setIsLoading(false);
     }
   };
+
+  if (!isValidLink) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-linear-to-br from-primary/5 via-background to-primary/10 p-4">
+        <Card className="w-full max-w-sm border-border/40 shadow-xl">
+          <CardContent className="flex flex-col items-center gap-4 pt-8 pb-8">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/30">
+              <AlertCircle className="size-8 text-red-600 dark:text-red-500" />
+            </div>
+            <div className="text-center">
+              <h2 className="text-xl font-semibold text-foreground">
+                {"링크가 유효하지 않습니다."}
+              </h2>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {"비밀번호 재설정 링크가 만료되었거나 유효하지 않습니다."}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {"다시 시도해주세요."}
+              </p>
+            </div>
+            <Button
+              onClick={() => router.push("/forgot-password")}
+              className="mt-4 w-full"
+            >
+              {"재설정 요청하기"}
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   if (isSuccess) {
     return (
@@ -109,10 +134,10 @@ export default function RegisterPage() {
             </div>
             <div className="text-center">
               <h2 className="text-xl font-semibold text-foreground">
-                회원가입이 완료되었습니다!
+                {"비밀번호가 변경되었습니다!"}
               </h2>
               <p className="mt-2 text-sm text-muted-foreground">
-                로그인 페이지로 이동 중입니다...
+                {"로그인 페이지로 이동 중입니다..."}
               </p>
             </div>
           </CardContent>
@@ -135,67 +160,16 @@ export default function RegisterPage() {
 
       <Card className="w-full max-w-sm border-border/40 shadow-xl">
         <CardHeader className="space-y-1 pb-4 text-center">
-          <CardTitle className="text-xl">{"회원가입"}</CardTitle>
-          <CardDescription>{"새 계정을 만들어보세요"}</CardDescription>
+          <CardTitle className="text-xl">{"새 비밀번호 설정"}</CardTitle>
+          <CardDescription>
+            {"새로운 비밀번호를 입력해주세요."}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <FieldGroup>
               <Field>
-                <FieldLabel>{"역할 선택"}</FieldLabel>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setRole("STUDENT")}
-                    className={`rounded-lg border-2 p-4 text-center transition-all ${
-                      role === "STUDENT"
-                        ? "border-primary bg-primary/10"
-                        : "border-border bg-background hover:border-primary/50"
-                    }`}
-                  >
-                    <p className="font-semibold">{"학생"}</p>
-                    <p className="text-xs text-muted-foreground">{"강의 수강"}</p>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRole("INSTRUCTOR")}
-                    className={`rounded-lg border-2 p-4 text-center transition-all ${
-                      role === "INSTRUCTOR"
-                        ? "border-primary bg-primary/10"
-                        : "border-border bg-background hover:border-primary/50"
-                    }`}
-                  >
-                    <p className="font-semibold">{"강사"}</p>
-                    <p className="text-xs text-muted-foreground">{"강의 개설"}</p>
-                  </button>
-                </div>
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="email">{"이메일"}</FieldLabel>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="example@university.ac.kr"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="h-11"
-                  required
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="name">{"이름"}</FieldLabel>
-                <Input
-                  id="name"
-                  type="text"
-                  placeholder="홍길동"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="h-11"
-                  required
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="password">{"비밀번호"}</FieldLabel>
+                <FieldLabel htmlFor="password">{"새 비밀번호"}</FieldLabel>
                 <div className="relative">
                   <Input
                     id="password"
@@ -222,7 +196,9 @@ export default function RegisterPage() {
                 </div>
               </Field>
               <Field>
-                <FieldLabel htmlFor="confirmPassword">{"비밀번호 확인"}</FieldLabel>
+                <FieldLabel htmlFor="confirmPassword">
+                  {"비밀번호 확인"}
+                </FieldLabel>
                 <div className="relative">
                   <Input
                     id="confirmPassword"
@@ -260,25 +236,13 @@ export default function RegisterPage() {
               {isLoading ? (
                 <>
                   <Loader2 className="mr-2 size-4 animate-spin" />
-                  {"가입 중..."}
+                  {"변경 중..."}
                 </>
               ) : (
-                "회원가입"
+                "비밀번호 변경"
               )}
             </Button>
           </form>
-
-          <div className="mt-6 border-t pt-4">
-            <p className="text-center text-sm text-muted-foreground">
-              {"이미 계정이 있으신가요?"}
-              <Link
-                href="/login"
-                className="ml-1 font-medium text-primary hover:underline"
-              >
-                {"로그인"}
-              </Link>
-            </p>
-          </div>
         </CardContent>
       </Card>
     </div>

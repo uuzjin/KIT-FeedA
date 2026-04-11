@@ -16,36 +16,37 @@ import {
   Star,
   Play,
   Loader2,
+  AlertCircle,
 } from "lucide-react";
 import {
-  getDashboardSummary,
   getStudentQuizHistory,
   getStudentMaterials,
-  type DashboardSummary,
-  type QuizHistory,
-  type StudentMaterial,
+  QuizSubmissionHistory,
+  StudentMaterialItem,
 } from "@/lib/api";
 
 export function StudentDashboard() {
-  const [summary, setSummary] = useState<DashboardSummary | null>(null);
-  const [quizHistory, setQuizHistory] = useState<QuizHistory[]>([]);
-  const [materials, setMaterials] = useState<StudentMaterial[]>([]);
+  const [quizHistory, setQuizHistory] = useState<QuizSubmissionHistory[]>([]);
+  const [materials, setMaterials] = useState<StudentMaterialItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const loadData = async () => {
       setIsLoading(true);
+      setError(null);
       try {
-        const [summaryData, quizData, materialsData] = await Promise.all([
-          getDashboardSummary(),
+        const [quizData, materialsData] = await Promise.all([
           getStudentQuizHistory(),
           getStudentMaterials(),
         ]);
-        setSummary(summaryData);
-        setQuizHistory(quizData.quizzes || []);
+        setQuizHistory(quizData.history || []);
         setMaterials(materialsData.materials || []);
-      } catch (error) {
-        console.error("Failed to load dashboard data:", error);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "대시보드 데이터를 불러오지 못했습니다.";
+        setError(message);
+        setQuizHistory([]);
+        setMaterials([]);
       } finally {
         setIsLoading(false);
       }
@@ -53,18 +54,33 @@ export function StudentDashboard() {
     void loadData();
   }, []);
 
+  // 계산된 통계
+  const stats = useMemo(() => {
+    const totalParticipated = quizHistory.length;
+    const averageScore = totalParticipated > 0
+      ? Math.round(quizHistory.reduce((sum, h) => sum + h.score, 0) / totalParticipated)
+      : 0;
+
+    return {
+      totalParticipated,
+      averageScore,
+      materialsCount: materials.length,
+      coursesCount: new Set(quizHistory.map(h => h.courseId)).size,
+    };
+  }, [quizHistory, materials]);
+
   const weeklyStats = useMemo(() => {
     return [
       {
         label: "참여 퀴즈",
-        value: quizHistory.length.toString(),
+        value: stats.totalParticipated.toString(),
         icon: HelpCircle,
         color: "text-blue-500",
         bg: "bg-blue-500/10",
       },
       {
         label: "평균 점수",
-        value: summary ? `${summary.averageAccuracy}%` : "0%",
+        value: `${stats.averageScore}%`,
         icon: TrendingUp,
         color: "text-emerald-500",
         bg: "bg-emerald-500/10",
@@ -78,30 +94,23 @@ export function StudentDashboard() {
       },
       {
         label: "수강 과목",
-        value: summary ? summary.totalWeeks.toString() : "0",
+        value: stats.coursesCount.toString(),
         icon: BookOpen,
         color: "text-violet-500",
         bg: "bg-violet-500/10",
       },
     ];
-  }, [summary, quizHistory, materials]);
+  }, [stats, materials.length]);
 
-  const upcomingQuizzes = useMemo(() => {
-    return quizHistory.slice(0, 3).map((quiz) => ({
-      course: quiz.course,
-      topic: quiz.topic,
-      dueIn: "예정",
-      urgent: false,
-    }));
-  }, [quizHistory]);
-
-  const recentResults = useMemo(() => {
-    return quizHistory.slice(0, 3).map((quiz) => ({
-      course: quiz.course,
-      topic: quiz.topic,
-      score: quiz.score,
-      total: 100,
-      date: quiz.date,
+  const recentQuizzes = useMemo(() => {
+    return quizHistory.slice(0, 3).map((submission) => ({
+      submissionId: submission.submissionId,
+      courseId: submission.courseId,
+      score: submission.score,
+      correctCount: submission.correctCount,
+      totalCount: submission.totalCount,
+      submittedAt: submission.submittedAt,
+      wrongAnswerCount: submission.wrongAnswers?.length || 0,
     }));
   }, [quizHistory]);
 
@@ -109,21 +118,27 @@ export function StudentDashboard() {
     return materials.slice(0, 3);
   }, [materials]);
 
-  const myProgress = useMemo(() => {
-    const courseMap = new Map<string, { course: string; quizzes: number }>();
+  const courseProgress = useMemo(() => {
+    const courseMap = new Map<string, { courseId: string; quizzes: number; avgScore: number }>();
 
-    quizHistory.forEach((quiz) => {
-      if (!courseMap.has(quiz.course)) {
-        courseMap.set(quiz.course, { course: quiz.course, quizzes: 0 });
+    quizHistory.forEach((submission) => {
+      if (!courseMap.has(submission.courseId)) {
+        courseMap.set(submission.courseId, { 
+          courseId: submission.courseId, 
+          quizzes: 0, 
+          avgScore: 0 
+        });
       }
-      const item = courseMap.get(quiz.course)!;
-      item.quizzes += 1;
+      const course = courseMap.get(submission.courseId)!;
+      course.quizzes += 1;
+      course.avgScore = (course.avgScore * (course.quizzes - 1) + submission.score) / course.quizzes;
     });
 
     return Array.from(courseMap.values()).map((course) => ({
-      course: course.course,
+      courseId: course.courseId,
       progress: Math.min(100, course.quizzes * 20),
       quizzes: course.quizzes,
+      averageScore: Math.round(course.avgScore),
     }));
   }, [quizHistory]);
 
@@ -171,32 +186,44 @@ export function StudentDashboard() {
         </ScrollArea>
       </section>
 
-      {/* 진행 예정 퀴즈 */}
+      {/* 최근 퀴즈 결과 */}
       <section>
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-foreground">{"진행 예정 퀴즈"}</h2>
+          <h2 className="text-sm font-semibold text-foreground">{"최근 퀴즈 결과"}</h2>
           <Button variant="ghost" size="sm" className="h-7 text-xs text-primary">
             {"모두 보기"}
           </Button>
         </div>
         <div className="flex flex-col gap-2">
-          {upcomingQuizzes.length > 0 ? (
-            upcomingQuizzes.map((quiz, index) => (
-              <Card key={index} className={`border-border/40 ${quiz.urgent ? "border-l-4 border-l-primary" : ""}`}>
+          {recentQuizzes.length > 0 ? (
+            recentQuizzes.map((quiz) => (
+              <Card key={quiz.submissionId} className="border-border/40">
                 <CardContent className="flex items-center justify-between p-4">
                   <div className="flex items-center gap-3">
-                    <div className={`flex size-10 items-center justify-center rounded-xl ${quiz.urgent ? "bg-primary/10" : "bg-muted"}`}>
-                      <HelpCircle className={`size-5 ${quiz.urgent ? "text-primary" : "text-muted-foreground"}`} />
+                    <div className={`flex size-10 items-center justify-center rounded-xl ${
+                      quiz.score >= 80 ? "bg-emerald-500/10" : quiz.score >= 60 ? "bg-amber-500/10" : "bg-red-500/10"
+                    }`}>
+                      <HelpCircle className={`size-5 ${
+                        quiz.score >= 80 ? "text-emerald-500" : quiz.score >= 60 ? "text-amber-500" : "text-red-500"
+                      }`} />
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-foreground">{quiz.topic}</p>
-                      <p className="text-xs text-muted-foreground">{quiz.course}</p>
+                      <p className="text-sm font-medium text-foreground">{quiz.courseId}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {`${quiz.correctCount}/${quiz.totalCount} 정답`}
+                      </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant={quiz.urgent ? "default" : "secondary"} className="shrink-0">
-                      {quiz.dueIn}
+                  <div className="flex flex-col items-end gap-1">
+                    <Badge variant={
+                      quiz.score >= 80 ? "default" :
+                      quiz.score >= 60 ? "secondary" : "destructive"
+                    }>
+                      {quiz.score}점
                     </Badge>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(quiz.submittedAt).toLocaleDateString("ko-KR")}
+                    </p>
                   </div>
                 </CardContent>
               </Card>
@@ -204,7 +231,7 @@ export function StudentDashboard() {
           ) : (
             <Card className="border-border/40">
               <CardContent className="p-4 text-center text-sm text-muted-foreground">
-                진행 예정인 퀴즈가 없습니다.
+                {"최근 퀴즈 결과가 없습니다."}
               </CardContent>
             </Card>
           )}
@@ -222,79 +249,35 @@ export function StudentDashboard() {
         <ScrollArea className="w-full">
           <div className="flex gap-3 pb-2">
             {studyMaterials.length > 0 ? (
-              studyMaterials.map((material, index) => (
-                <Card key={index} className="min-w-[200px] shrink-0 border-border/40">
+              studyMaterials.map((material) => (
+                <Card key={material.id} className="min-w-[200px] shrink-0 border-border/40">
                   <CardContent className="p-4">
                     <div className="flex items-start justify-between">
-                      <Badge variant={material.type === "예습" ? "default" : "secondary"} className="text-xs">
-                        {material.type}
+                      <Badge 
+                        variant={material.type === "PREVIEW" ? "default" : "secondary"} 
+                        className="text-xs"
+                      >
+                        {material.type === "PREVIEW" ? "예습" : "복습"}
                       </Badge>
-                      {material.isNew && (
-                        <span className="flex size-2 rounded-full bg-primary" />
-                      )}
+                      <span className="flex size-2 rounded-full bg-primary" />
                     </div>
                     <p className="mt-3 text-sm font-medium text-foreground">{material.title}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{material.course}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {new Date(material.createdAt).toLocaleDateString("ko-KR")}
+                    </p>
                   </CardContent>
                 </Card>
               ))
             ) : (
               <Card className="min-w-[200px] shrink-0 border-border/40">
                 <CardContent className="p-4 text-center text-xs text-muted-foreground">
-                  새로운 자료가 없습니다.
+                  {"새로운 자료가 없습니다."}
                 </CardContent>
               </Card>
             )}
           </div>
           <ScrollBar orientation="horizontal" />
         </ScrollArea>
-      </section>
-
-      {/* 최근 퀴즈 결과 */}
-      <section>
-        <Card className="border-border/40">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-              <Star className="size-4 text-primary" />
-              {"최근 퀴즈 결과"}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <div className="flex flex-col gap-3">
-              {recentResults.length > 0 ? (
-                recentResults.map((result, index) => (
-                  <div key={index} className="flex items-center justify-between rounded-lg bg-muted/50 p-3">
-                    <div className="flex items-center gap-3">
-                      <div className={`flex size-10 items-center justify-center rounded-xl ${
-                        result.score >= 80 ? "bg-emerald-500/10" : "bg-amber-500/10"
-                      }`}>
-                        {result.score >= 80 ? (
-                          <CheckCircle className="size-5 text-emerald-500" />
-                        ) : (
-                          <TrendingUp className="size-5 text-amber-500" />
-                        )}
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-foreground">{result.topic}</p>
-                        <p className="text-xs text-muted-foreground">{result.course}</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className={`text-lg font-bold ${result.score >= 80 ? "text-emerald-500" : "text-amber-500"}`}>
-                        {result.score}{"점"}
-                      </p>
-                      <p className="text-xs text-muted-foreground">{result.date}</p>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="p-4 text-center text-sm text-muted-foreground">
-                  응시한 퀴즈가 없습니다.
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
       </section>
 
       {/* 과목별 진도 */}
@@ -308,24 +291,26 @@ export function StudentDashboard() {
           </CardHeader>
           <CardContent className="pt-0">
             <div className="flex flex-col gap-4">
-              {myProgress.length > 0 ? (
-                myProgress.map((course, index) => (
-                  <div key={index}>
+              {courseProgress.length > 0 ? (
+                courseProgress.map((course) => (
+                  <div key={course.courseId}>
                     <div className="mb-1 flex items-center justify-between">
-                      <span className="text-sm font-medium text-foreground">{course.course}</span>
-                      <span className="text-xs text-muted-foreground">{"퀴즈 "}{course.quizzes}{"회 참여"}</span>
+                      <span className="text-sm font-medium text-foreground">{course.courseId}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {"평균 "}{course.averageScore}{"% · 퀴즈 "}{course.quizzes}{"회"}
+                      </span>
                     </div>
                     <div className="flex items-center gap-3">
                       <Progress value={course.progress} className="h-2 flex-1" />
                       <span className="w-10 text-right text-xs font-medium text-primary">
-                        {course.progress}%
+                        {Math.min(100, course.progress)}%
                       </span>
                     </div>
                   </div>
                 ))
               ) : (
                 <div className="p-4 text-center text-sm text-muted-foreground">
-                  진행 중인 과목이 없습니다.
+                  {"진행 중인 과목이 없습니다."}
                 </div>
               )}
             </div>
@@ -335,4 +320,3 @@ export function StudentDashboard() {
     </div>
   );
 }
-

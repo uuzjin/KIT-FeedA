@@ -18,41 +18,47 @@ import {
   BarChart3,
   Sparkles,
   Loader2,
+  AlertCircle,
 } from "lucide-react";
 import {
-  getDashboardSummary,
   getInstructorComprehensionTrends,
   getInstructorWeakTopics,
   getInstructorUploadStatus,
-  type DashboardSummary,
-  type ComprehensionTrend,
-  type WeakTopic,
-  type UploadStatusItem,
+  ComprehensionTrendItem,
+  WeakTopicItem,
+  UploadStatusItem,
 } from "@/lib/api";
 
 export function TeacherDashboard() {
-  const [summary, setSummary] = useState<DashboardSummary | null>(null);
-  const [trends, setTrends] = useState<ComprehensionTrend[]>([]);
-  const [weakTopics, setWeakTopics] = useState<WeakTopic[]>([]);
+  const [trends, setTrends] = useState<ComprehensionTrendItem[]>([]);
+  const [weakTopics, setWeakTopics] = useState<WeakTopicItem[]>([]);
   const [uploadStatus, setUploadStatus] = useState<UploadStatusItem[]>([]);
+  const [completionRate, setCompletionRate] = useState(0);
+  const [overallTrend, setOverallTrend] = useState<"IMPROVING" | "DECLINING" | "STABLE">("STABLE");
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const loadData = async () => {
       setIsLoading(true);
+      setError(null);
       try {
-        const [summaryData, trendsData, weakTopicsData, uploadStatusData] = await Promise.all([
-          getDashboardSummary(),
+        const [trendsData, weakTopicsData, uploadStatusData] = await Promise.all([
           getInstructorComprehensionTrends(),
           getInstructorWeakTopics(),
           getInstructorUploadStatus(),
         ]);
-        setSummary(summaryData);
         setTrends(trendsData.trends || []);
+        setOverallTrend(trendsData.overallTrend || "STABLE");
         setWeakTopics(weakTopicsData.weakTopics || []);
-        setUploadStatus(uploadStatusData.uploadedWeeks || []);
-      } catch (error) {
-        console.error("Failed to load dashboard data:", error);
+        setUploadStatus(uploadStatusData.uploadStatus || []);
+        setCompletionRate(uploadStatusData.completionRate || 0);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "대시보드 데이터를 불러오지 못했습니다.";
+        setError(message);
+        setTrends([]);
+        setWeakTopics([]);
+        setUploadStatus([]);
       } finally {
         setIsLoading(false);
       }
@@ -61,17 +67,28 @@ export function TeacherDashboard() {
   }, []);
 
   const weeklyStats = useMemo(() => {
+    const uniqueCourses = new Set(trends.map(t => t.courseId)).size;
+    const completedCount = uploadStatus.filter((u) => {
+      const isComplete = (u.previewGuide || u.reviewSummary || u.script);
+      return isComplete;
+    }).length;
+
+    // 평균 이해도 계산
+    const avgUnderstanding = trends.length > 0
+      ? Math.round(trends.reduce((sum, t) => sum + t.averageScore, 0) / trends.length)
+      : 0;
+
     return [
       {
-        label: "총 수강생",
-        value: "156",
+        label: "담당 과목",
+        value: uniqueCourses.toString(),
         icon: Users,
         color: "text-blue-500",
         bg: "bg-blue-500/10",
       },
       {
         label: "업로드 자료",
-        value: uploadStatus.filter((u) => u.status === "completed").length.toString(),
+        value: completedCount.toString(),
         icon: FileText,
         color: "text-emerald-500",
         bg: "bg-emerald-500/10",
@@ -85,27 +102,26 @@ export function TeacherDashboard() {
       },
       {
         label: "평균 이해도",
-        value: summary ? `${summary.averageAccuracy}%` : "0%",
+        value: `${avgUnderstanding}%`,
         icon: TrendingUp,
         color: "text-violet-500",
         bg: "bg-violet-500/10",
       },
     ];
-  }, [summary, uploadStatus, trends]);
+  }, [trends, uploadStatus]);
 
-  const deadlines = useMemo(() => {
+  const pendingDeadlines = useMemo(() => {
     return uploadStatus
-      .filter((item) => item.status === "pending" || item.status === "upcoming")
+      .filter((item) => !item.previewGuide || !item.reviewSummary)
       .slice(0, 3)
       .map((item) => ({
-        title: `${item.week} - ${item.title}`,
-        course: "과정",
-        dueIn: item.status === "pending" ? "진행 중" : "예정",
-        urgent: item.status === "pending",
+        week: item.weekNumber,
+        topic: item.topic,
+        pending: (!item.previewGuide ? "예습 " : "") + (!item.reviewSummary ? "복습" : ""),
       }));
   }, [uploadStatus]);
 
-  const mergedWeakTopics = useMemo(() => {
+  const topWeakTopics = useMemo(() => {
     return weakTopics.slice(0, 3);
   }, [weakTopics]);
 
@@ -153,34 +169,32 @@ export function TeacherDashboard() {
         </ScrollArea>
       </section>
 
-      {/* 마감 임박 */}
+      {/* 미완료 항목 */}
       <section>
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-foreground">{"마감 임박"}</h2>
+          <h2 className="text-sm font-semibold text-foreground">{"미완료 항목"}</h2>
           <Button variant="ghost" size="sm" className="h-7 text-xs text-primary">
             {"모두 보기"}
           </Button>
         </div>
         <div className="flex flex-col gap-2">
-          {deadlines.length > 0 ? (
-            deadlines.map((deadline, index) => (
-              <Card key={index} className={`border-border/40 ${deadline.urgent ? "border-l-4 border-l-destructive" : ""}`}>
+          {pendingDeadlines.length > 0 ? (
+            pendingDeadlines.map((item, index) => (
+              <Card key={index} className="border-l-4 border-l-amber-500 border-border/40">
                 <CardContent className="flex items-center justify-between p-4">
                   <div className="flex items-center gap-3">
-                    <div className={`flex size-10 items-center justify-center rounded-xl ${deadline.urgent ? "bg-destructive/10" : "bg-muted"}`}>
-                      {deadline.urgent ? (
-                        <AlertTriangle className="size-5 text-destructive" />
-                      ) : (
-                        <Clock className="size-5 text-muted-foreground" />
-                      )}
+                    <div className="flex size-10 items-center justify-center rounded-xl bg-amber-500/10">
+                      <AlertTriangle className="size-5 text-amber-500" />
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-foreground">{deadline.title}</p>
-                      <p className="text-xs text-muted-foreground">{deadline.course}</p>
+                      <p className="text-sm font-medium text-foreground">
+                        {`${item.week}주차 - ${item.topic}`}
+                      </p>
+                      <p className="text-xs text-muted-foreground">{item.pending}</p>
                     </div>
                   </div>
-                  <Badge variant={deadline.urgent ? "destructive" : "secondary"} className="shrink-0">
-                    {deadline.dueIn}
+                  <Badge variant="secondary" className="shrink-0">
+                    {"남음"}
                   </Badge>
                 </CardContent>
               </Card>
@@ -188,7 +202,7 @@ export function TeacherDashboard() {
           ) : (
             <Card className="border-border/40">
               <CardContent className="p-4 text-center text-sm text-muted-foreground">
-                마감이 임박한 항목이 없습니다.
+                {"미완료 항목이 없습니다."}
               </CardContent>
             </Card>
           )}
@@ -201,40 +215,48 @@ export function TeacherDashboard() {
           <h2 className="text-sm font-semibold text-foreground">{"자료 업로드 현황"}</h2>
         </div>
         <Card className="border-border/40">
-          <CardContent className="p-4">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-xs font-semibold">{"완료율"}</CardTitle>
+              <span className="text-sm font-bold text-primary">{Math.round(completionRate)}%</span>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <Progress value={completionRate} className="mb-4 h-2" />
             <div className="flex flex-col gap-3">
               {uploadStatus.length > 0 ? (
-                uploadStatus.map((item, index) => (
-                  <div key={index} className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`flex size-8 items-center justify-center rounded-lg ${
-                        item.status === "completed" ? "bg-emerald-500/10" : 
-                        item.status === "pending" ? "bg-amber-500/10" : "bg-muted"
-                      }`}>
-                        {item.status === "completed" ? (
-                          <CheckCircle className="size-4 text-emerald-500" />
-                        ) : item.status === "pending" ? (
-                          <Clock className="size-4 text-amber-500" />
-                        ) : (
-                          <FileText className="size-4 text-muted-foreground" />
-                        )}
+                uploadStatus.slice(0, 5).map((item) => {
+                  const isComplete = item.previewGuide || item.reviewSummary || item.script;
+                  return (
+                    <div key={`${item.weekNumber}-${item.topic}`} className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className={`flex size-8 items-center justify-center rounded-lg ${
+                          isComplete ? "bg-emerald-500/10" : "bg-muted"
+                        }`}>
+                          {isComplete ? (
+                            <CheckCircle className="size-4 text-emerald-500" />
+                          ) : (
+                            <FileText className="size-4 text-muted-foreground" />
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-foreground">
+                            {`${item.weekNumber}주차`}
+                          </p>
+                          <p className="text-xs text-muted-foreground">{item.topic}</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-sm font-medium text-foreground">{item.week}</p>
-                        <p className="text-xs text-muted-foreground">{item.title}</p>
+                      <div className="flex gap-1">
+                        {item.previewGuide && <Badge variant="outline" className="text-xs">{"예습"}</Badge>}
+                        {item.reviewSummary && <Badge variant="outline" className="text-xs">{"복습"}</Badge>}
+                        {item.script && <Badge variant="outline" className="text-xs">{"스크립트"}</Badge>}
                       </div>
                     </div>
-                    <Badge variant={
-                      item.status === "completed" ? "default" : 
-                      item.status === "pending" ? "secondary" : "outline"
-                    } className={`text-xs ${item.status === "completed" ? "bg-emerald-500" : ""}`}>
-                      {item.status === "completed" ? "완료" : item.status === "pending" ? "진행중" : "예정"}
-                    </Badge>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <div className="text-center text-sm text-muted-foreground">
-                  업로드된 자료가 없습니다.
+                  {"업로드 현황 데이터가 없습니다."}
                 </div>
               )}
             </div>
@@ -248,29 +270,77 @@ export function TeacherDashboard() {
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
               <BarChart3 className="size-4 text-primary" />
-              {"취약 토픽"}
+              {"취약 토픽 TOP"}
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
             <div className="flex flex-col gap-4">
-              {mergedWeakTopics.length > 0 ? (
-                mergedWeakTopics.map((topic, index) => (
-                  <div key={index}>
+              {topWeakTopics.length > 0 ? (
+                topWeakTopics.map((topic) => (
+                  <div key={topic.topic}>
                     <div className="mb-1 flex items-center justify-between">
-                      <span className="text-sm font-medium text-foreground">{topic.topic}</span>
-                      <span className="text-xs text-muted-foreground">{topic.affectedStudents}{"명"}</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <Progress value={topic.averageScore} className="h-2 flex-1" />
-                      <span className="w-10 text-right text-xs font-medium text-destructive">
-                        {topic.averageScore}%
+                      <span className="text-sm font-medium text-foreground">
+                        {`${topic.rank || "-"}. ${topic.topic}`}
                       </span>
+                      <span className="text-xs font-medium text-destructive">
+                        {Math.round(topic.wrongRate * 100)}% 오답
+                      </span>
+                    </div>
+                    <Progress 
+                      value={Math.min(100, Math.round(topic.wrongRate * 100))} 
+                      className="h-2"
+                    />
+                  </div>
+                ))
+              ) : (
+                <div className="text-center text-sm text-muted-foreground">
+                  {"취약한 토픽이 없습니다."}
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </section>
+
+      {/* 학습 추이 */}
+      <section>
+        <Card className="border-border/40">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+              <TrendingUp className="size-4 text-primary" />
+              {"학습 추이"}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="mb-4 flex items-center gap-2">
+              <Badge variant={
+                overallTrend === "IMPROVING" ? "default" :
+                overallTrend === "DECLINING" ? "destructive" : "secondary"
+              }>
+                {overallTrend === "IMPROVING" ? "📈 개선 중" :
+                 overallTrend === "DECLINING" ? "📉 하락 중" : "➡️ 안정적"}
+              </Badge>
+            </div>
+            <div className="flex flex-col gap-3">
+              {trends.length > 0 ? (
+                trends.slice(0, 5).map((trend) => (
+                  <div key={trend.quizId} className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">
+                        {`${trend.weekNumber}주차 - ${trend.topic}`}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {`참여: ${Math.round(trend.participationRate * 100)}%`}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-bold text-primary">{trend.averageScore}%</p>
                     </div>
                   </div>
                 ))
               ) : (
                 <div className="text-center text-sm text-muted-foreground">
-                  취약한 토픽이 없습니다.
+                  {"추이 데이터가 없습니다."}
                 </div>
               )}
             </div>

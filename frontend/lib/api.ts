@@ -131,6 +131,83 @@ export type AnalysisReport = {
   suggestions: string[];
 };
 
+// Course types
+export type Course = {
+  courseId: string;
+  courseName: string;
+  semester: string;
+  dayOfWeek: string[];
+  startTime: string;
+  endTime: string;
+  maxStudents?: number;
+  description?: string;
+  createdAt: string;
+  updatedAt?: string;
+};
+
+// Announcement types
+export type Announcement = {
+  announcementId: string;
+  courseId: string;
+  scheduleId?: string;
+  status: string;
+  templateType: string;
+  title?: string;
+  content?: string;
+  customMessage?: string;
+  createdAt: string;
+  completedAt?: string;
+};
+
+// Quiz types for dashboard
+export type QuizSubmissionHistory = {
+  submissionId: string;
+  quizId: string;
+  courseId: string;
+  score: number;
+  correctCount: number;
+  totalCount: number;
+  submittedAt: string;
+  wrongAnswers: Array<{
+    questionId: string;
+    content?: string;
+    correctAnswer?: string;
+    selectedOption?: string;
+  }>;
+};
+
+export type ComprehensionTrendItem = {
+  weekNumber: number;
+  topic: string;
+  averageScore: number;
+  participationRate: number;
+  quizId: string;
+  courseId?: string;
+};
+
+export type WeakTopicItem = {
+  rank?: number;
+  topic: string;
+  wrongRate: number;
+  affectedStudents?: number;
+};
+
+export type UploadStatusItem = {
+  weekNumber: number;
+  topic: string;
+  previewGuide: boolean;
+  reviewSummary: boolean;
+  script: boolean;
+};
+
+export type StudentMaterialItem = {
+  type: "PREVIEW" | "REVIEW";
+  id: string;
+  courseId: string;
+  title: string;
+  createdAt: string;
+};
+
 export async function login(payload: { email: string; password: string }) {
   return request<LoginResponse>("/api/auth/login", {
     method: "POST",
@@ -142,8 +219,224 @@ export async function getDashboardSummary() {
   return request<DashboardSummary>("/api/dashboard/summary");
 }
 
-export async function getNotices() {
-  return request<Notice[]>("/api/notices");
+export async function getNotices(courseId?: string) {
+  if (!courseId) {
+    // 사용자의 모든 강의 조회 후 공지 병합
+    try {
+      const coursesResponse = await request<{ courses: Course[] }>("/api/courses");
+      const allAnnouncements: Announcement[] = [];
+      
+      for (const course of coursesResponse.courses) {
+        try {
+          const announcements = await request<{ announcements: Announcement[]; totalCount: number }>(
+            `/api/courses/${course.courseId}/announcements`
+          );
+          allAnnouncements.push(...announcements.announcements);
+        } catch {
+          // 특정 강의 공지 조회 실패 시 무시
+        }
+      }
+      
+      return allAnnouncements;
+    } catch {
+      // 강의 조회 실패 시 빈 배열 반환
+      return [];
+    }
+  }
+  
+  const result = await request<{ announcements: Announcement[]; totalCount: number }>(
+    `/api/courses/${courseId}/announcements`
+  );
+  return result.announcements;
+}
+
+export async function getCourseAnnouncements(courseId: string) {
+  return request<{ announcements: Announcement[]; totalCount: number }>(
+    `/api/courses/${courseId}/announcements`
+  );
+}
+
+export async function getCourses(semester?: string) {
+  const params = new URLSearchParams();
+  if (semester) {
+    params.append("semester", semester);
+  }
+  return request<{ courses: Course[]; totalCount: number }>(
+    `/api/courses${params.toString() ? `?${params}` : ""}`
+  );
+}
+
+export async function getCourseDetail(courseId: string): Promise<Course & { instructor: { userId: string; name: string; email: string }; currentStudents: number }> {
+  return request(
+    `/api/courses/${courseId}`
+  );
+}
+
+export async function createCourse(payload: {
+  courseName: string;
+  semester: string;
+  dayOfWeek: string[];
+  startTime: string;
+  endTime: string;
+  maxStudents?: number;
+  description?: string;
+}): Promise<Course> {
+  return request("/api/courses", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateCourse(
+  courseId: string,
+  payload: {
+    courseName?: string;
+    dayOfWeek?: string[];
+    startTime?: string;
+    endTime?: string;
+    maxStudents?: number;
+    description?: string;
+  }
+): Promise<Course> {
+  return request(`/api/courses/${courseId}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteCourse(courseId: string): Promise<{ message: string }> {
+  return request(`/api/courses/${courseId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function getCourseSchedules(courseId: string): Promise<{
+  schedules: Array<{
+    scheduleId: string;
+    weekNumber: number;
+    topic: string;
+    date: string;
+    description?: string;
+  }>;
+}> {
+  return request(`/api/courses/${courseId}/schedules`);
+}
+
+export async function createCourseSchedule(
+  courseId: string,
+  payload: {
+    weekNumber: number;
+    topic: string;
+    date: string;
+    description?: string;
+  }
+): Promise<{ scheduleId: string }> {
+  return request(`/api/courses/${courseId}/schedules`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateCourseSchedule(
+  courseId: string,
+  scheduleId: string,
+  payload: {
+    topic?: string;
+    date?: string;
+    description?: string;
+  }
+): Promise<{ scheduleId: string }> {
+  return request(`/api/courses/${courseId}/schedules/${scheduleId}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteCourseSchedule(
+  courseId: string,
+  scheduleId: string
+): Promise<{ message: string }> {
+  return request(`/api/courses/${courseId}/schedules/${scheduleId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function getCourseStudents(courseId: string, page?: number, size?: number): Promise<{
+  students: Array<{ userId: string; name: string; email: string; joinedAt: string }>;
+  totalCount: number;
+}> {
+  const params = new URLSearchParams();
+  if (page) params.append("page", page.toString());
+  if (size) params.append("size", size.toString());
+  return request(`/api/courses/${courseId}/students${params.toString() ? `?${params}` : ""}`);
+}
+
+export async function addCourseStudents(
+  courseId: string,
+  payload: { file?: File; studentIds?: string[] }
+): Promise<{ addedCount: number; errors: Array<{ row: number; reason: string }> }> {
+  const formData = new FormData();
+  if (payload.file) {
+    formData.append("file", payload.file);
+  }
+  if (payload.studentIds) {
+    formData.append("studentIds", JSON.stringify(payload.studentIds));
+  }
+
+  const authHeaders = await getAuthHeaders();
+  const response = await fetch(`${API_BASE_URL}/api/courses/${courseId}/students`, {
+    method: "POST",
+    headers: {
+      ...(authHeaders.Authorization ? { Authorization: authHeaders.Authorization } : {}),
+    },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    let message = `학생 추가 실패 (${response.status})`;
+    try {
+      const body = (await response.json()) as { detail?: string };
+      if (body?.detail) {
+        message = body.detail;
+      }
+    } catch {
+      // ignore parse error
+    }
+    throw new Error(message);
+  }
+
+  return (await response.json()) as {
+    addedCount: number;
+    errors: Array<{ row: number; reason: string }>;
+  };
+}
+
+export async function removeCourseStudent(
+  courseId: string,
+  studentId: string
+): Promise<{ message: string }> {
+  return request(`/api/courses/${courseId}/students/${studentId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function createCourseInvite(
+  courseId: string,
+  payload?: { expiresAt?: string }
+): Promise<{ inviteToken: string; inviteLink: string; expiresAt: string }> {
+  return request(`/api/courses/${courseId}/invites`, {
+    method: "POST",
+    body: JSON.stringify(payload || {}),
+  });
+}
+
+export async function acceptCourseInvite(
+  courseId: string,
+  token: string
+): Promise<{ courseId: string; courseName: string; joinedAt: string }> {
+  return request(`/api/courses/${courseId}/invites/${token}/accept`, {
+    method: "POST",
+  });
 }
 
 export async function getNoticeSettings() {
@@ -239,42 +532,8 @@ export async function deleteUserAccount(userId: string): Promise<{ message: stri
 }
 
 // Dashboard APIs for Students
-export type QuizHistory = {
-  quizId: string;
-  topic: string;
-  course: string;
-  score: number;
-  totalQuestions: number;
-  date: string;
-};
-
-export type StudentMaterial = {
-  materialId: string;
-  title: string;
-  course: string;
-  type: "예습" | "복습";
-  uploadedAt: string;
-  isNew: boolean;
-};
-
 export async function getStudentQuizHistory(courseId?: string): Promise<{
-  quizzes: QuizHistory[];
-  totalParticipated: number;
-  averageScore: number;
-}> {
-  const params = new URLSearchParams();
-  if (courseId) {
-    params.append("courseId", courseId);
-  }
-  return request<{
-    quizzes: QuizHistory[];
-    totalParticipated: number;
-    averageScore: number;
-  }>(`/api/dashboard/students/quiz-history${params.toString() ? `?${params}` : ""}`);
-}
-
-export async function getStudentMaterials(courseId?: string): Promise<{
-  materials: StudentMaterial[];
+  history: QuizSubmissionHistory[];
   totalCount: number;
 }> {
   const params = new URLSearchParams();
@@ -282,34 +541,28 @@ export async function getStudentMaterials(courseId?: string): Promise<{
     params.append("courseId", courseId);
   }
   return request<{
-    materials: StudentMaterial[];
+    history: QuizSubmissionHistory[];
+    totalCount: number;
+  }>(`/api/dashboard/students/quiz-history${params.toString() ? `?${params}` : ""}`);
+}
+
+export async function getStudentMaterials(courseId?: string): Promise<{
+  materials: StudentMaterialItem[];
+  totalCount: number;
+}> {
+  const params = new URLSearchParams();
+  if (courseId) {
+    params.append("courseId", courseId);
+  }
+  return request<{
+    materials: StudentMaterialItem[];
     totalCount: number;
   }>(`/api/dashboard/students/materials${params.toString() ? `?${params}` : ""}`);
 }
 
 // Dashboard APIs for Instructors
-export type ComprehensionTrend = {
-  weekNumber: number;
-  topic: string;
-  averageScore: number;
-  participationRate: number;
-  quizId: string;
-};
-
-export type WeakTopic = {
-  topic: string;
-  averageScore: number;
-  affectedStudents: number;
-};
-
-export type UploadStatusItem = {
-  week: string;
-  title: string;
-  status: "completed" | "pending" | "upcoming";
-};
-
 export async function getInstructorComprehensionTrends(courseId?: string): Promise<{
-  trends: ComprehensionTrend[];
+  trends: ComprehensionTrendItem[];
   overallTrend: "IMPROVING" | "DECLINING" | "STABLE";
 }> {
   const params = new URLSearchParams();
@@ -317,25 +570,25 @@ export async function getInstructorComprehensionTrends(courseId?: string): Promi
     params.append("courseId", courseId);
   }
   return request<{
-    trends: ComprehensionTrend[];
+    trends: ComprehensionTrendItem[];
     overallTrend: "IMPROVING" | "DECLINING" | "STABLE";
   }>(`/api/dashboard/instructors/comprehension-trends${params.toString() ? `?${params}` : ""}`);
 }
 
 export async function getInstructorWeakTopics(courseId?: string): Promise<{
-  weakTopics: WeakTopic[];
+  weakTopics: WeakTopicItem[];
 }> {
   const params = new URLSearchParams();
   if (courseId) {
     params.append("courseId", courseId);
   }
   return request<{
-    weakTopics: WeakTopic[];
+    weakTopics: WeakTopicItem[];
   }>(`/api/dashboard/instructors/weak-topics${params.toString() ? `?${params}` : ""}`);
 }
 
 export async function getInstructorUploadStatus(courseId?: string): Promise<{
-  uploadedWeeks: UploadStatusItem[];
+  uploadStatus: UploadStatusItem[];
   completionRate: number;
 }> {
   const params = new URLSearchParams();
@@ -343,7 +596,7 @@ export async function getInstructorUploadStatus(courseId?: string): Promise<{
     params.append("courseId", courseId);
   }
   return request<{
-    uploadedWeeks: UploadStatusItem[];
+    uploadStatus: UploadStatusItem[];
     completionRate: number;
   }>(`/api/dashboard/instructors/upload-status${params.toString() ? `?${params}` : ""}`);
 }

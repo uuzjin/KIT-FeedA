@@ -36,7 +36,7 @@ export default function MaterialsPage() {
 
   return (
     <AppShell>
-      {user.role === "teacher" ? <TeacherMaterials /> : <StudentMaterials />}
+      {user.role === "INSTRUCTOR" ? <TeacherMaterials /> : <StudentMaterials />}
     </AppShell>
   );
 }
