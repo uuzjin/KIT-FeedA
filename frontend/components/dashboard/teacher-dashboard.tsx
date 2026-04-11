@@ -137,24 +137,40 @@ export function TeacherDashboard() {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 p-4 pb-24">
-      <div className="flex flex-wrap items-center gap-2">
-        <Button 
-          size="sm" 
-          className="gap-2"
+      {/* 주요 액션 버튼 */}
+      <div className="grid grid-cols-2 gap-3 sm:gap-4">
+        <Card 
+          className="group cursor-pointer border-border/40 bg-gradient-to-br from-amber-500/10 to-amber-600/5 shadow-sm transition-all hover:from-amber-500/20 hover:to-amber-600/10 hover:shadow-lg hover:border-amber-400/50"
           onClick={() => router.push("/materials")}
         >
-          <Upload className="size-4" />
-          {"자료 업로드"}
-        </Button>
-        <Button 
-          size="sm" 
-          variant="secondary" 
-          className="gap-2"
+          <CardContent className="p-4 sm:p-5">
+            <div className="flex flex-col items-center justify-center gap-3 text-center">
+              <div className="flex size-12 items-center justify-center rounded-xl bg-amber-500/20 transition-all group-hover:scale-110 group-hover:bg-amber-500/30">
+                <Upload className="size-6 text-amber-600 group-hover:text-amber-700" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-foreground group-hover:text-amber-600">자료 업로드</p>
+                <p className="text-xs text-muted-foreground mt-1">강의 자료를 업로드하세요</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card 
+          className="group cursor-pointer border-border/40 bg-gradient-to-br from-violet-500/10 to-violet-600/5 shadow-sm transition-all hover:from-violet-500/20 hover:to-violet-600/10 hover:shadow-lg hover:border-violet-400/50"
           onClick={() => router.push("/analysis")}
         >
-          <Sparkles className="size-4" />
-          {"AI 분석"}
-        </Button>
+          <CardContent className="p-4 sm:p-5">
+            <div className="flex flex-col items-center justify-center gap-3 text-center">
+              <div className="flex size-12 items-center justify-center rounded-xl bg-violet-500/20 transition-all group-hover:scale-110 group-hover:bg-violet-500/30">
+                <Sparkles className="size-6 text-violet-600 group-hover:text-violet-700" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-foreground group-hover:text-violet-600">AI 분석</p>
+                <p className="text-xs text-muted-foreground mt-1">학생 데이터를 분석하세요</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* 주간 통계 */}

@@ -154,24 +154,40 @@ export function StudentDashboard() {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 p-4 pb-24">
-      <div className="flex flex-wrap items-center gap-2">
-        <Button 
-          size="sm" 
-          className="gap-2"
+      {/* 주요 액션 버튼 */}
+      <div className="grid grid-cols-2 gap-3 sm:gap-4">
+        <Card 
+          className="group cursor-pointer border-border/40 bg-gradient-to-br from-blue-500/10 to-blue-600/5 shadow-sm transition-all hover:from-blue-500/20 hover:to-blue-600/10 hover:shadow-lg hover:border-blue-400/50"
           onClick={() => router.push("/quiz")}
         >
-          <Play className="size-4" />
-          {"퀴즈 시작"}
-        </Button>
-        <Button 
-          size="sm" 
-          variant="secondary" 
-          className="gap-2"
+          <CardContent className="p-4 sm:p-5">
+            <div className="flex flex-col items-center justify-center gap-3 text-center">
+              <div className="flex size-12 items-center justify-center rounded-xl bg-blue-500/20 transition-all group-hover:scale-110 group-hover:bg-blue-500/30">
+                <Play className="size-6 text-blue-600 group-hover:text-blue-700" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-foreground group-hover:text-blue-600">퀴즈 시작</p>
+                <p className="text-xs text-muted-foreground mt-1">새로운 퀴즈에 도전하세요</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card 
+          className="group cursor-pointer border-border/40 bg-gradient-to-br from-emerald-500/10 to-emerald-600/5 shadow-sm transition-all hover:from-emerald-500/20 hover:to-emerald-600/10 hover:shadow-lg hover:border-emerald-400/50"
           onClick={() => router.push("/materials")}
         >
-          <BookOpen className="size-4" />
-          {"학습 자료"}
-        </Button>
+          <CardContent className="p-4 sm:p-5">
+            <div className="flex flex-col items-center justify-center gap-3 text-center">
+              <div className="flex size-12 items-center justify-center rounded-xl bg-emerald-500/20 transition-all group-hover:scale-110 group-hover:bg-emerald-500/30">
+                <BookOpen className="size-6 text-emerald-600 group-hover:text-emerald-700" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-foreground group-hover:text-emerald-600">학습 자료</p>
+                <p className="text-xs text-muted-foreground mt-1">강의 자료를 확인하세요</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* 주간 통계 */}
