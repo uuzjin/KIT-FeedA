@@ -135,7 +135,7 @@ export function Header() {
   const isTeacher = user?.role === "INSTRUCTOR";
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-card/95 backdrop-blur-sm supports-[backdrop-filter]:bg-card/80">
+    <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-card/95 backdrop-blur-sm supports-backdrop-filter:bg-card/80">
       <div className="flex h-14 items-center justify-between px-4">
         {/* 좌측: 햄버거 메뉴 */}
         <Sheet open={isMenuOpen} onOpenChange={setIsMenuOpen}>
@@ -149,7 +149,7 @@ export function Header() {
               <span className="sr-only">{"메뉴 열기"}</span>
             </Button>
           </SheetTrigger>
-          <SheetContent side="left" className="w-[300px] p-0 sm:w-[340px]">
+          <SheetContent side="left" className="w-75 p-0 sm:w-85">
             <SheetHeader className="border-b border-border/40 bg-primary/5 px-5 py-5">
               <SheetTitle className="flex items-center gap-2 text-left text-primary">
                 {isTeacher ? (

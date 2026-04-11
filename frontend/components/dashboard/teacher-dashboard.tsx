@@ -140,7 +140,7 @@ export function TeacherDashboard() {
       {/* 주요 액션 버튼 */}
       <div className="grid grid-cols-2 gap-3 sm:gap-4">
         <Card 
-          className="group cursor-pointer border-border/40 bg-gradient-to-br from-amber-500/10 to-amber-600/5 shadow-sm transition-all hover:from-amber-500/20 hover:to-amber-600/10 hover:shadow-lg hover:border-amber-400/50"
+          className="group cursor-pointer border-border/40 bg-linear-to-br from-amber-500/10 to-amber-600/5 shadow-sm transition-all hover:from-amber-500/20 hover:to-amber-600/10 hover:shadow-lg hover:border-amber-400/50"
           onClick={() => router.push("/materials")}
         >
           <CardContent className="p-4 sm:p-5">
@@ -156,7 +156,7 @@ export function TeacherDashboard() {
           </CardContent>
         </Card>
         <Card 
-          className="group cursor-pointer border-border/40 bg-gradient-to-br from-violet-500/10 to-violet-600/5 shadow-sm transition-all hover:from-violet-500/20 hover:to-violet-600/10 hover:shadow-lg hover:border-violet-400/50"
+          className="group cursor-pointer border-border/40 bg-linear-to-br from-violet-500/10 to-violet-600/5 shadow-sm transition-all hover:from-violet-500/20 hover:to-violet-600/10 hover:shadow-lg hover:border-violet-400/50"
           onClick={() => router.push("/analysis")}
         >
           <CardContent className="p-4 sm:p-5">
@@ -179,7 +179,7 @@ export function TeacherDashboard() {
         <ScrollArea className="w-full">
           <div className="flex gap-3 pb-2">
             {weeklyStats.map((stat) => (
-              <Card key={stat.label} className="min-w-[140px] shrink-0 border-border/40">
+              <Card key={stat.label} className="min-w-35 shrink-0 border-border/40">
                 <CardContent className="flex items-center gap-3 p-4">
                   <div className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${stat.bg}`}>
                     <stat.icon className={`size-5 ${stat.color}`} />

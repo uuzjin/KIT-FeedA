@@ -20,6 +20,7 @@ import {
   Pause,
   TrendingUp,
   AlertTriangle,
+  Loader2,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -27,104 +28,107 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { generateQuiz, getLatestQuiz, type QuizLatest } from "@/lib/api";
-
-const activeQuizzes = [
-  {
-    id: 1,
-    course: "데이터베이스 개론",
-    week: "3주차",
-    title: "SQL SELECT 구문 이해도 체크",
-    questions: 5,
-    participants: 38,
-    total: 45,
-    avgScore: 72,
-    status: "active",
-    endsIn: "2시간",
-  },
-  {
-    id: 2,
-    course: "운영체제",
-    week: "2주차",
-    title: "프로세스 관리 퀴즈",
-    questions: 4,
-    participants: 35,
-    total: 38,
-    avgScore: 85,
-    status: "active",
-    endsIn: "1일",
-  },
-];
-
-const completedQuizzes = [
-  {
-    id: 1,
-    course: "데이터베이스 개론",
-    week: "2주차",
-    title: "관계형 모델 이해도 체크",
-    questions: 5,
-    participants: 45,
-    total: 45,
-    avgScore: 78,
-    weakTopic: "외래 키 제약조건",
-    completedAt: "3일 전",
-  },
-  {
-    id: 2,
-    course: "소프트웨어 공학",
-    week: "1주차",
-    title: "애자일 방법론 퀴즈",
-    questions: 4,
-    participants: 30,
-    total: 31,
-    avgScore: 92,
-    weakTopic: null,
-    completedAt: "1주 전",
-  },
-];
-
-const draftQuizzes = [
-  {
-    id: 1,
-    course: "컴퓨터 네트워크",
-    week: "3주차",
-    title: "TCP/IP 프로토콜 퀴즈",
-    questions: 3,
-    lastModified: "오늘",
-  },
-];
+import {
+  getCourses,
+  getCourseQuizzes,
+  createQuiz,
+  closeQuiz,
+  type Quiz,
+  type Course,
+} from "@/lib/api";
+import { useAuth } from "@/contexts/auth-context";
 
 export function TeacherQuiz() {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState("active");
-  const [latestQuiz, setLatestQuiz] = useState<QuizLatest | null>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [activeQuizzes, setActiveQuizzes] = useState<Quiz[]>([]);
+  const [completedQuizzes, setCompletedQuizzes] = useState<Quiz[]>([]);
+  const [draftQuizzes, setDraftQuizzes] = useState<Quiz[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
 
   useEffect(() => {
-    const loadLatest = async () => {
+    if (!user?.id) return;
+
+    let mounted = true;
+
+    const loadQuizzes = async () => {
+      setIsLoading(true);
+      setError(null);
       try {
-        const data = await getLatestQuiz();
-        setLatestQuiz(data);
-      } catch {
-        // fallback to local mock list
+        // 강사의 담당 과목 조회
+        const coursesData = await getCourses();
+        
+        if (!mounted) return;
+
+        // 각 과목의 퀴즈 조회
+        const allActiveQuizzes: Quiz[] = [];
+        const allCompletedQuizzes: Quiz[] = [];
+        const allDraftQuizzes: Quiz[] = [];
+
+        for (const course of coursesData.courses) {
+          try {
+            const activeData = await getCourseQuizzes(course.courseId, "PUBLISHED");
+            const closedData = await getCourseQuizzes(course.courseId, "CLOSED");
+            const draftData = await getCourseQuizzes(course.courseId, "DRAFT");
+
+            allActiveQuizzes.push(...activeData.quizzes);
+            allCompletedQuizzes.push(...closedData.quizzes);
+            allDraftQuizzes.push(...draftData.quizzes);
+          } catch (err) {
+            console.error(`Failed to load quizzes for course ${course.courseId}:`, err);
+          }
+        }
+
+        if (mounted) {
+          setCourses(coursesData.courses);
+          setActiveQuizzes(allActiveQuizzes);
+          setCompletedQuizzes(allCompletedQuizzes);
+          setDraftQuizzes(allDraftQuizzes);
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "퀴즈 목록을 불러오지 못했습니다.";
+        if (mounted) setError(message);
+      } finally {
+        if (mounted) setIsLoading(false);
       }
     };
-    void loadLatest();
+
+    void loadQuizzes();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  const handleGenerateQuiz = async () => {
-    setIsGenerating(true);
+  const handleCloseQuiz = async (courseId: string, quizId: string) => {
     try {
-      const result = await generateQuiz({
-        topic: "최신 강의",
-        difficulty: "mixed",
-        question_count: 5,
-      });
-      setLatestQuiz(result.quiz);
-      setActiveTab("active");
-    } finally {
-      setIsGenerating(false);
+      await closeQuiz(courseId, quizId);
+      // 새로고침
+      setActiveQuizzes((prev) =>
+        prev.filter((q) => q.quizId !== quizId)
+      );
+      setCompletedQuizzes((prev) => [
+        ...prev,
+        activeQuizzes.find((q) => q.quizId === quizId)!,
+      ]);
+    } catch (err) {
+      console.error("Failed to close quiz:", err);
     }
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="size-8 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">{"로딩 중..."}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-5 p-4 pb-24">
@@ -134,43 +138,16 @@ export function TeacherQuiz() {
           <h1 className="text-xl font-bold text-foreground">{"퀴즈 관리"}</h1>
           <p className="text-sm text-muted-foreground">{"퀴즈 출제 및 결과 분석"}</p>
         </div>
-        <Button className="gap-2">
+        <Button className="gap-2" disabled={isCreating}>
           <Plus className="size-4" />
           {"새 퀴즈"}
         </Button>
       </div>
 
-      {/* AI 자동 출제 카드 */}
-      <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-primary/10">
-        <CardContent className="p-4">
-          <div className="flex items-center gap-3">
-            <div className="flex size-12 items-center justify-center rounded-xl bg-primary/20">
-              <Sparkles className="size-6 text-primary" />
-            </div>
-            <div className="flex-1">
-              <h3 className="font-semibold text-foreground">{"AI 퀴즈 자동 출제"}</h3>
-              <p className="text-sm text-muted-foreground">
-                {"강의 내용을 기반으로 AI가 자동으로 퀴즈 문항을 생성합니다."}
-              </p>
-            </div>
-          </div>
-          <Button size="sm" className="mt-4 w-full gap-2" onClick={handleGenerateQuiz} disabled={isGenerating}>
-            <Sparkles className="size-4" />
-            {isGenerating ? "생성 중..." : "AI로 퀴즈 생성하기"}
-          </Button>
-        </CardContent>
-      </Card>
-
-      {latestQuiz && (
-        <Card className="border-primary/20">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">{"백엔드 최신 퀴즈"}</CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <p className="text-sm font-medium text-foreground">{latestQuiz.title}</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {latestQuiz.questions}{"문항 · 정답률 "}{latestQuiz.accuracy}%
-            </p>
+      {error && (
+        <Card className="border-destructive/50 bg-destructive/10">
+          <CardContent className="p-4">
+            <p className="text-sm text-destructive">{error}</p>
           </CardContent>
         </Card>
       )}
@@ -180,195 +157,157 @@ export function TeacherQuiz() {
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="active" className="gap-1">
             <Play className="size-3" />
-            {"진행중"}
+            {"진행중"} ({activeQuizzes.length})
           </TabsTrigger>
           <TabsTrigger value="completed" className="gap-1">
             <CheckCircle className="size-3" />
-            {"완료"}
+            {"완료"} ({completedQuizzes.length})
           </TabsTrigger>
           <TabsTrigger value="draft" className="gap-1">
             <Edit className="size-3" />
-            {"임시저장"}
+            {"임시저장"} ({draftQuizzes.length})
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="active" className="mt-4">
-          <div className="flex flex-col gap-3">
-            {activeQuizzes.map((quiz) => (
-              <Card key={quiz.id} className="border-border/40 border-l-4 border-l-primary">
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="text-xs">
-                          {quiz.course}
-                        </Badge>
-                        <Badge variant="secondary" className="text-xs">
-                          {quiz.week}
-                        </Badge>
-                        <Badge className="bg-emerald-500 text-xs">{"진행중"}</Badge>
+          {activeQuizzes.length === 0 ? (
+            <Card className="border-border/40">
+              <CardContent className="p-8 text-center">
+                <p className="text-sm text-muted-foreground">{"진행 중인 퀴즈가 없습니다."}</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {activeQuizzes.map((quiz) => (
+                <Card key={quiz.quizId} className="border-border/40 border-l-4 border-l-primary">
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge variant="outline" className="text-xs">
+                            {quiz.courseId}
+                          </Badge>
+                          <Badge className="bg-emerald-500 text-xs">{"진행중"}</Badge>
+                        </div>
+                        <p className="mt-2 font-medium text-foreground">
+                          {quiz.scheduleId || "퀴즈"}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {quiz.questions.length}{"문항"}
+                        </p>
                       </div>
-                      <p className="mt-2 font-medium text-foreground">{quiz.title}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{quiz.questions}{"문항"}</p>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="size-8">
+                            <MoreVertical className="size-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem>
+                            <Eye className="mr-2 size-4" />
+                            {"결과 보기"}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => handleCloseQuiz(quiz.courseId, quiz.quizId)}
+                          >
+                            <Pause className="mr-2 size-4" />
+                            {"마감하기"}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="size-8">
-                          <MoreVertical className="size-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem>
-                          <Eye className="mr-2 size-4" />
-                          {"결과 보기"}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem>
-                          <Pause className="mr-2 size-4" />
-                          {"마감하기"}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-3 gap-3">
-                    <div className="rounded-lg bg-muted/50 p-2 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <Users className="size-3 text-muted-foreground" />
-                        <span className="text-xs text-muted-foreground">{"참여"}</span>
-                      </div>
-                      <p className="text-sm font-semibold text-foreground">
-                        {quiz.participants}/{quiz.total}
-                      </p>
-                    </div>
-                    <div className="rounded-lg bg-muted/50 p-2 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <BarChart3 className="size-3 text-muted-foreground" />
-                        <span className="text-xs text-muted-foreground">{"평균"}</span>
-                      </div>
-                      <p className={`text-sm font-semibold ${quiz.avgScore >= 80 ? "text-emerald-500" : quiz.avgScore >= 60 ? "text-amber-500" : "text-destructive"}`}>
-                        {quiz.avgScore}{"점"}
-                      </p>
-                    </div>
-                    <div className="rounded-lg bg-muted/50 p-2 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <Clock className="size-3 text-muted-foreground" />
-                        <span className="text-xs text-muted-foreground">{"남은 시간"}</span>
-                      </div>
-                      <p className="text-sm font-semibold text-foreground">{quiz.endsIn}</p>
-                    </div>
-                  </div>
-
-                  <div className="mt-3">
-                    <div className="mb-1 flex justify-between text-xs text-muted-foreground">
-                      <span>{"참여율"}</span>
-                      <span>{Math.round((quiz.participants / quiz.total) * 100)}%</span>
-                    </div>
-                    <Progress value={(quiz.participants / quiz.total) * 100} className="h-1.5" />
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="completed" className="mt-4">
-          <div className="flex flex-col gap-3">
-            {completedQuizzes.map((quiz) => (
-              <Card key={quiz.id} className="border-border/40">
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="text-xs">
-                          {quiz.course}
-                        </Badge>
-                        <Badge variant="secondary" className="text-xs">
-                          {quiz.week}
-                        </Badge>
+          {completedQuizzes.length === 0 ? (
+            <Card className="border-border/40">
+              <CardContent className="p-8 text-center">
+                <p className="text-sm text-muted-foreground">{"완료된 퀴즈가 없습니다."}</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {completedQuizzes.map((quiz) => (
+                <Card key={quiz.quizId} className="border-border/40">
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge variant="outline" className="text-xs">
+                            {quiz.courseId}
+                          </Badge>
+                        </div>
+                        <p className="mt-2 font-medium text-foreground">
+                          {quiz.scheduleId || "퀴즈"}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {quiz.questions.length}{"문항"}
+                        </p>
                       </div>
-                      <p className="mt-2 font-medium text-foreground">{quiz.title}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {quiz.questions}{"문항 · "}{quiz.completedAt}
-                      </p>
+                      <Button size="sm" variant="outline">
+                        {"리포트"}
+                      </Button>
                     </div>
-                    <Button size="sm" variant="outline">
-                      {"리포트"}
-                    </Button>
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-2 gap-3">
-                    <div className="rounded-lg bg-muted/50 p-3">
-                      <div className="flex items-center gap-2">
-                        <Users className="size-4 text-muted-foreground" />
-                        <span className="text-xs text-muted-foreground">{"참여율"}</span>
-                      </div>
-                      <p className="mt-1 text-lg font-bold text-foreground">
-                        {Math.round((quiz.participants / quiz.total) * 100)}%
-                      </p>
-                    </div>
-                    <div className="rounded-lg bg-muted/50 p-3">
-                      <div className="flex items-center gap-2">
-                        <TrendingUp className="size-4 text-muted-foreground" />
-                        <span className="text-xs text-muted-foreground">{"평균 점수"}</span>
-                      </div>
-                      <p className={`mt-1 text-lg font-bold ${quiz.avgScore >= 80 ? "text-emerald-500" : quiz.avgScore >= 60 ? "text-amber-500" : "text-destructive"}`}>
-                        {quiz.avgScore}{"점"}
-                      </p>
-                    </div>
-                  </div>
-
-                  {quiz.weakTopic && (
-                    <div className="mt-3 flex items-center gap-2 rounded-lg bg-amber-500/10 p-2">
-                      <AlertTriangle className="size-4 text-amber-500" />
-                      <span className="text-xs text-amber-700">{"취약 토픽: "}{quiz.weakTopic}</span>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="draft" className="mt-4">
-          <div className="flex flex-col gap-3">
-            {draftQuizzes.map((quiz) => (
-              <Card key={quiz.id} className="border-border/40">
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-start gap-3">
-                      <div className="flex size-10 items-center justify-center rounded-xl bg-muted">
-                        <Edit className="size-5 text-muted-foreground" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline" className="text-xs">
-                            {quiz.course}
-                          </Badge>
-                          <Badge variant="secondary" className="text-xs">
-                            {quiz.week}
-                          </Badge>
+          {draftQuizzes.length === 0 ? (
+            <Card className="border-border/40">
+              <CardContent className="p-8 text-center">
+                <p className="text-sm text-muted-foreground">{"임시 저장된 퀴즈가 없습니다."}</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {draftQuizzes.map((quiz) => (
+                <Card key={quiz.quizId} className="border-border/40">
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-start gap-3">
+                        <div className="flex size-10 items-center justify-center rounded-xl bg-muted">
+                          <Edit className="size-5 text-muted-foreground" />
                         </div>
-                        <p className="mt-1 font-medium text-foreground">{quiz.title}</p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {quiz.questions}{"문항 · 수정 "}{quiz.lastModified}
-                        </p>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className="text-xs">
+                              {quiz.courseId}
+                            </Badge>
+                          </div>
+                          <p className="mt-1 font-medium text-foreground">
+                            {quiz.scheduleId || "퀴즈"}
+                          </p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {quiz.questions.length}{"문항"}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="outline">
+                          {"수정"}
+                        </Button>
+                        <Button size="sm">
+                          {"발행"}
+                        </Button>
                       </div>
                     </div>
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="outline">
-                        {"수정"}
-                      </Button>
-                      <Button size="sm">
-                        {"발행"}
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </TabsContent>
       </Tabs>
     </div>
   );
 }
+

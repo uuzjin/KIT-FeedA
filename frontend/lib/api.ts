@@ -600,3 +600,534 @@ export async function getInstructorUploadStatus(courseId?: string): Promise<{
     completionRate: number;
   }>(`/api/dashboard/instructors/upload-status${params.toString() ? `?${params}` : ""}`);
 }
+
+// Quiz Types
+export type Question = {
+  questionId: string;
+  orderNum: number;
+  questionType: "MULTIPLE_CHOICE" | "TRUE_FALSE" | "SHORT_ANSWER";
+  difficulty: "EASY" | "MEDIUM" | "HARD";
+  content: string;
+  options?: string[];
+  answer?: string;
+};
+
+export type Quiz = {
+  quizId: string;
+  courseId: string;
+  scheduleId: string;
+  status: "generating" | "DRAFT" | "PUBLISHED" | "CLOSED";
+  difficultyLevel: string;
+  anonymousEnabled: boolean;
+  expiresAt?: string;
+  questions: Question[];
+  createdAt: string;
+  updatedAt?: string;
+};
+
+export type QuizSubmission = {
+  submissionId: string;
+  quizId: string;
+  studentId?: string;
+  score: number;
+  correctCount: number;
+  totalCount: number;
+  submittedAt: string;
+};
+
+export type ComprehensionReport = {
+  quizId: string;
+  comprehensionLevel: "GOOD" | "PARTIAL" | "INSUFFICIENT";
+  averageScore: number;
+  participationRate: number;
+  questionAnalysis: Array<{
+    questionId: string;
+    correctRate: number;
+    difficulty: string;
+  }>;
+};
+
+// Quiz APIs
+export async function createQuiz(
+  courseId: string,
+  payload: {
+    scheduleId: string;
+    questionCount?: number;
+    questionTypes?: string[];
+    difficultyLevel?: string;
+  }
+): Promise<{ quizId: string; status: string; message: string }> {
+  return request(`/api/courses/${courseId}/quizzes`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getCourseQuizzes(
+  courseId: string,
+  status?: string
+): Promise<{ quizzes: Quiz[]; totalCount: number }> {
+  const params = new URLSearchParams();
+  if (status) {
+    params.append("status", status);
+  }
+  return request(
+    `/api/courses/${courseId}/quizzes${params.toString() ? `?${params}` : ""}`
+  );
+}
+
+export async function getQuizDetail(
+  courseId: string,
+  quizId: string
+): Promise<Quiz> {
+  return request(`/api/courses/${courseId}/quizzes/${quizId}`);
+}
+
+export async function updateQuizQuestions(
+  courseId: string,
+  quizId: string,
+  payload: Question[]
+): Promise<{ quizId: string; updatedAt: string }> {
+  return request(`/api/courses/${courseId}/quizzes/${quizId}`, {
+    method: "PUT",
+    body: JSON.stringify({ questions: payload }),
+  });
+}
+
+export async function updateQuizSettings(
+  courseId: string,
+  quizId: string,
+  payload: {
+    difficultyLevel?: string;
+    anonymousEnabled?: boolean;
+    expiresAt?: string;
+  }
+): Promise<Quiz> {
+  return request(`/api/courses/${courseId}/quizzes/${quizId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteQuiz(
+  courseId: string,
+  quizId: string
+): Promise<{ message: string }> {
+  return request(`/api/courses/${courseId}/quizzes/${quizId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function publishQuiz(
+  courseId: string,
+  quizId: string
+): Promise<{ quizId: string; status: string }> {
+  return request(`/api/courses/${courseId}/quizzes/${quizId}/publish`, {
+    method: "PUT",
+  });
+}
+
+export async function closeQuiz(
+  courseId: string,
+  quizId: string
+): Promise<{ quizId: string; status: string }> {
+  return request(`/api/courses/${courseId}/quizzes/${quizId}/close`, {
+    method: "PUT",
+  });
+}
+
+export async function submitQuiz(
+  courseId: string,
+  quizId: string,
+  payload: { answers: Array<{ questionId: string; selectedOption: string }> }
+): Promise<QuizSubmission> {
+  return request(`/api/courses/${courseId}/quizzes/${quizId}/submissions`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getQuizComprehension(
+  courseId: string,
+  quizId: string
+): Promise<ComprehensionReport> {
+  return request(
+    `/api/courses/${courseId}/quizzes/${quizId}/comprehension`
+  );
+}
+
+// Script Types
+export type ScriptAnalysis = {
+  scriptId: string;
+  fileName: string;
+  status: "processing" | "completed" | "failed";
+  logicalGaps: Array<{
+    location: string;
+    description: string;
+    severity: "low" | "medium" | "high";
+  }>;
+  missingTerms: string[];
+  missingPrerequisites: string[];
+  suggestions: string[];
+  createdAt: string;
+};
+
+// Script APIs
+export async function uploadScript(
+  courseId: string,
+  payload: {
+    file: File;
+    weekNumber?: number;
+    topic?: string;
+  }
+): Promise<{ scriptId: string; status: string; message: string }> {
+  const formData = new FormData();
+  formData.append("file", payload.file);
+  if (payload.weekNumber) {
+    formData.append("weekNumber", payload.weekNumber.toString());
+  }
+  if (payload.topic) {
+    formData.append("topic", payload.topic);
+  }
+
+  const authHeaders = await getAuthHeaders();
+  const response = await fetch(
+    `${API_BASE_URL}/api/courses/${courseId}/scripts`,
+    {
+      method: "POST",
+      headers: {
+        ...(authHeaders.Authorization
+          ? { Authorization: authHeaders.Authorization }
+          : {}),
+      },
+      body: formData,
+    }
+  );
+
+  if (!response.ok) {
+    let message = `스크립트 업로드 실패 (${response.status})`;
+    try {
+      const body = (await response.json()) as { detail?: string };
+      if (body?.detail) {
+        message = body.detail;
+      }
+    } catch {
+      // ignore parse error
+    }
+    throw new Error(message);
+  }
+
+  return (await response.json()) as {
+    scriptId: string;
+    status: string;
+    message: string;
+  };
+}
+
+export async function getCourseScripts(
+  courseId: string
+): Promise<{ scripts: ScriptAnalysis[] }> {
+  return request(`/api/courses/${courseId}/scripts`);
+}
+
+export async function getScriptAnalysis(
+  courseId: string,
+  scriptId: string
+): Promise<ScriptAnalysis> {
+  return request(`/api/courses/${courseId}/scripts/${scriptId}`);
+}
+
+// Materials Types
+export type Material = {
+  materialId: string;
+  courseId: string;
+  scheduleId?: string;
+  type: "PREVIEW_GUIDE" | "REVIEW_SUMMARY" | "SCRIPT";
+  title: string;
+  content?: string;
+  fileUrl?: string;
+  createdAt: string;
+  updatedAt?: string;
+};
+
+// Materials APIs
+export async function getCourseMaterials(
+  courseId: string,
+  type?: string
+): Promise<{ materials: Material[]; totalCount: number }> {
+  const params = new URLSearchParams();
+  if (type) {
+    params.append("type", type);
+  }
+  return request(
+    `/api/courses/${courseId}/materials${params.toString() ? `?${params}` : ""}`
+  );
+}
+
+export async function createPreviewGuide(
+  courseId: string,
+  payload: {
+    scheduleId: string;
+    title: string;
+    content?: string;
+  }
+): Promise<Material> {
+  return request(`/api/courses/${courseId}/materials/preview`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function createReviewSummary(
+  courseId: string,
+  payload: {
+    scheduleId: string;
+    title: string;
+    content?: string;
+  }
+): Promise<Material> {
+  return request(`/api/courses/${courseId}/materials/review`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function uploadMaterial(
+  courseId: string,
+  payload: {
+    file: File;
+    type: string;
+    scheduleId?: string;
+  }
+): Promise<Material> {
+  const formData = new FormData();
+  formData.append("file", payload.file);
+  formData.append("type", payload.type);
+  if (payload.scheduleId) {
+    formData.append("scheduleId", payload.scheduleId);
+  }
+
+  const authHeaders = await getAuthHeaders();
+  const response = await fetch(
+    `${API_BASE_URL}/api/courses/${courseId}/materials`,
+    {
+      method: "POST",
+      headers: {
+        ...(authHeaders.Authorization
+          ? { Authorization: authHeaders.Authorization }
+          : {}),
+      },
+      body: formData,
+    }
+  );
+
+  if (!response.ok) {
+    let message = `자료 업로드 실패 (${response.status})`;
+    try {
+      const body = (await response.json()) as { detail?: string };
+      if (body?.detail) {
+        message = body.detail;
+      }
+    } catch {
+      // ignore parse error
+    }
+    throw new Error(message);
+  }
+
+  return (await response.json()) as Material;
+}
+
+export async function deleteMaterial(
+  courseId: string,
+  materialId: string
+): Promise<{ message: string }> {
+  return request(`/api/courses/${courseId}/materials/${materialId}`, {
+    method: "DELETE",
+  });
+}
+
+// Notifications Types
+export type Notification = {
+  notificationId: string;
+  userId: string;
+  type: string;
+  title: string;
+  message: string;
+  data?: Record<string, unknown>;
+  read: boolean;
+  createdAt: string;
+};
+
+export type NotificationPreferences = {
+  userId: string;
+  channels: string[]; // email, push, sms, etc
+  quizNotifications: boolean;
+  materialNotifications: boolean;
+  deadlineNotifications: boolean;
+  deadlineHoursBefore: number;
+};
+
+// Notifications APIs
+export async function getNotifications(
+  userId: string,
+  unreadOnly?: boolean
+): Promise<{ notifications: Notification[]; totalCount: number }> {
+  const params = new URLSearchParams();
+  if (unreadOnly) {
+    params.append("unreadOnly", "true");
+  }
+  return request(
+    `/api/users/${userId}/notifications${params.toString() ? `?${params}` : ""}`
+  );
+}
+
+export async function markNotificationAsRead(
+  userId: string,
+  notificationId: string
+): Promise<{ message: string }> {
+  return request(
+    `/api/users/${userId}/notifications/${notificationId}/read`,
+    {
+      method: "POST",
+    }
+  );
+}
+
+export async function getNotificationPreferences(
+  userId: string
+): Promise<NotificationPreferences> {
+  return request(
+    `/api/users/${userId}/notification-preferences`
+  );
+}
+
+export async function updateNotificationPreferences(
+  userId: string,
+  payload: Partial<NotificationPreferences>
+): Promise<NotificationPreferences> {
+  return request(
+    `/api/users/${userId}/notification-preferences`,
+    {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+// Reminders Types
+export type Reminder = {
+  reminderId: string;
+  userId: string;
+  courseId: string;
+  type: string;
+  title: string;
+  description?: string;
+  dueDate: string;
+  status: "pending" | "sent" | "dismissed";
+  createdAt: string;
+};
+
+// Reminders APIs
+export async function getReminders(userId: string): Promise<{
+  reminders: Reminder[];
+  totalCount: number;
+}> {
+  return request(`/api/users/${userId}/reminders`);
+}
+
+export async function dismissReminder(
+  userId: string,
+  reminderId: string
+): Promise<{ message: string }> {
+  return request(
+    `/api/users/${userId}/reminders/${reminderId}/dismiss`,
+    {
+      method: "POST",
+    }
+  );
+}
+
+// Course Additional APIs for Instructors
+export async function assignCoursesToInstructor(
+  userId: string,
+  courseIds: string[]
+): Promise<{
+  assignedCourses: Array<{
+    courseId: string;
+    courseName: string;
+    semester: string;
+  }>;
+  totalCount: number;
+}> {
+  return request(`/api/users/${userId}/courses`, {
+    method: "POST",
+    body: JSON.stringify({ courseIds }),
+  });
+}
+
+export async function getInstructorCourses(
+  userId: string,
+  semester?: string
+): Promise<{
+  courses: Course[];
+  totalCount: number;
+}> {
+  const params = new URLSearchParams();
+  if (semester) {
+    params.append("semester", semester);
+  }
+  return request(
+    `/api/users/${userId}/courses${params.toString() ? `?${params}` : ""}`
+  );
+}
+
+export async function updateUserRole(
+  userId: string,
+  role: "INSTRUCTOR" | "STUDENT" | "ADMIN"
+): Promise<{ userId: string; role: string; updatedAt: string }> {
+  return request(`/api/users/${userId}/role`, {
+    method: "PUT",
+    body: JSON.stringify({ role }),
+  });
+}
+
+// Announcements APIs
+export type AnnouncementDetail = {
+  announcementId: string;
+  courseId: string;
+  scheduleId?: string;
+  title: string;
+  content: string;
+  templateType?: string;
+  status: string;
+  createdAt: string;
+  updatedAt?: string;
+  publishedAt?: string;
+};
+
+export async function createAnnouncement(
+  courseId: string,
+  payload: {
+    scheduleId?: string;
+    title: string;
+    content: string;
+    templateType?: string;
+  }
+): Promise<AnnouncementDetail> {
+  return request(`/api/courses/${courseId}/announcements`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function publishAnnouncement(
+  courseId: string,
+  announcementId: string
+): Promise<{ announcementId: string; status: string; publishedAt: string }> {
+  return request(
+    `/api/courses/${courseId}/announcements/${announcementId}/publish`,
+    {
+      method: "POST",
+    }
+  );
+}

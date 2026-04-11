@@ -157,7 +157,7 @@ export function StudentDashboard() {
       {/* 주요 액션 버튼 */}
       <div className="grid grid-cols-2 gap-3 sm:gap-4">
         <Card 
-          className="group cursor-pointer border-border/40 bg-gradient-to-br from-blue-500/10 to-blue-600/5 shadow-sm transition-all hover:from-blue-500/20 hover:to-blue-600/10 hover:shadow-lg hover:border-blue-400/50"
+          className="group cursor-pointer border-border/40 bg-linear-to-br from-blue-500/10 to-blue-600/5 shadow-sm transition-all hover:from-blue-500/20 hover:to-blue-600/10 hover:shadow-lg hover:border-blue-400/50"
           onClick={() => router.push("/quiz")}
         >
           <CardContent className="p-4 sm:p-5">
@@ -173,7 +173,7 @@ export function StudentDashboard() {
           </CardContent>
         </Card>
         <Card 
-          className="group cursor-pointer border-border/40 bg-gradient-to-br from-emerald-500/10 to-emerald-600/5 shadow-sm transition-all hover:from-emerald-500/20 hover:to-emerald-600/10 hover:shadow-lg hover:border-emerald-400/50"
+          className="group cursor-pointer border-border/40 bg-linear-to-br from-emerald-500/10 to-emerald-600/5 shadow-sm transition-all hover:from-emerald-500/20 hover:to-emerald-600/10 hover:shadow-lg hover:border-emerald-400/50"
           onClick={() => router.push("/materials")}
         >
           <CardContent className="p-4 sm:p-5">
@@ -196,7 +196,7 @@ export function StudentDashboard() {
         <ScrollArea className="w-full">
           <div className="flex gap-3 pb-2">
             {weeklyStats.map((stat) => (
-              <Card key={stat.label} className="min-w-[140px] shrink-0 border-border/40">
+              <Card key={stat.label} className="min-w-35 shrink-0 border-border/40">
                 <CardContent className="flex items-center gap-3 p-4">
                   <div className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${stat.bg}`}>
                     <stat.icon className={`size-5 ${stat.color}`} />
@@ -277,7 +277,7 @@ export function StudentDashboard() {
           <div className="flex gap-3 pb-2">
             {studyMaterials.length > 0 ? (
               studyMaterials.map((material) => (
-                <Card key={material.id} className="min-w-[200px] shrink-0 border-border/40">
+                <Card key={material.id} className="min-w-50 shrink-0 border-border/40">
                   <CardContent className="p-4">
                     <div className="flex items-start justify-between">
                       <Badge 
@@ -296,7 +296,7 @@ export function StudentDashboard() {
                 </Card>
               ))
             ) : (
-              <Card className="min-w-[200px] shrink-0 border-border/40">
+              <Card className="min-w-50 shrink-0 border-border/40">
                 <CardContent className="p-4 text-center text-xs text-muted-foreground">
                   {"새로운 자료가 없습니다."}
                 </CardContent>
