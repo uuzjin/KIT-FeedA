@@ -492,25 +492,26 @@ export type LmsSyncRecord = {
 
 export async function getLmsSyncHistory(courseId: string) {
   return request<{ syncs: LmsSyncRecord[]; totalCount: number }>(
-    `/api/courses/${courseId}/lms-syncs`
+    `/api/courses/${courseId}/lms-syncs`,
   );
 }
 
 export async function syncLmsStudents(
   courseId: string,
-  payload: { lmsType: string; lmsCourseId: string; syncStudents?: boolean }
+  payload: { lmsType: string; lmsCourseId: string; syncStudents?: boolean },
 ) {
-  return request<{ syncId: string | null; syncedStudents: number; lastSyncAt: string }>(
-    `/api/courses/${courseId}/lms-syncs`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        lmsType: payload.lmsType,
-        lmsCourseId: payload.lmsCourseId,
-        syncStudents: payload.syncStudents ?? true,
-      }),
-    }
-  );
+  return request<{
+    syncId: string | null;
+    syncedStudents: number;
+    lastSyncAt: string;
+  }>(`/api/courses/${courseId}/lms-syncs`, {
+    method: "POST",
+    body: JSON.stringify({
+      lmsType: payload.lmsType,
+      lmsCourseId: payload.lmsCourseId,
+      syncStudents: payload.syncStudents ?? true,
+    }),
+  });
 }
 
 export async function getNoticeSettings() {
@@ -1236,4 +1237,13 @@ export async function publishAnnouncement(
       method: "POST",
     },
   );
+}
+
+export async function joinCourseByInviteToken(
+  token: string,
+): Promise<{ courseId: string; message: string }> {
+  return request(`/api/invites/${token}/accept`, {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
 }
