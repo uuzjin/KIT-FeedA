@@ -1,25 +1,8 @@
-"""
-Supabase Auth 액세스 토큰 검증 (JWKS / 비대칭 키).
-
-[과거 HS256 + SUPABASE_JWT_SECRET 방식이 깨지는 이유]
-- HS256(HMAC)은 **서명과 검증에 동일한 공유 비밀**이 필요하다.
-- Supabase가 ES256(타원곡선 ECDSA) 등 **비대칭 서명**으로 발급하면, 서명은 **개인키**로 만들고
-  검증은 **공개키**로 해야 한다. 이때 JWT Secret 문자열만으로는 ES256 서명을 검증할 수 없다.
-- 따라서 대칭키로 `jwt.decode(..., algorithms=["HS256"], key=JWT_SECRET)` 하면
-  alg 불일치(또는 서명 검증 실패)로 401이 난다. 공개키는 JWKS 엔드포인트에서 내려받는 것이 정석이다.
-"""
-
-from __future__ import annotations
-
-import logging
 from functools import lru_cache
-from typing import Final
-
-import jwt
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jwt import PyJWKClient
-from jwt.exceptions import ExpiredSignatureError, InvalidTokenError, PyJWKClientError
+from jose import JWTError, jwt
+import httpx
 
 from .config import settings
 
@@ -51,38 +34,45 @@ def _extract_bearer_token(credentials: HTTPAuthorizationCredentials | None) -> s
         raise HTTPException(status_code=401, detail="인증 토큰이 필요합니다.")
     return token
 
+@lru_cache(maxsize=1000)
+def _get_user_from_supabase_cached(token: str) -> dict:
+    """Supabase API 반복 호출로 인한 Rate Limit 방지용 캐싱.
+    로컬의 ES256/RS256 비대칭 키 검증 에러를 원천 차단하기 위해 
+    REST API를 직접 호출하여 서버 측에서 안전하게 토큰을 검증합니다."""
+    url = f"{settings.SUPABASE_URL}/auth/v1/user"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "apikey": settings.SUPABASE_KEY
+    }
+    try:
+        response = httpx.get(url, headers=headers, timeout=10.0)
+        response.raise_for_status()
+        user_data = response.json()
+        
+        return {
+            "sub": user_data.get("id"),
+            "email": user_data.get("email"),
+            "user_metadata": user_data.get("user_metadata", {}),
+        }
+    except Exception as e:
+        print(f"Supabase /user endpoint failed: {e}")
+        raise ValueError("Supabase Auth API 검증 실패")
 
 def _decode_token(token: str) -> dict:
     try:
-        header = jwt.get_unverified_header(token)
-        logger.info("JWT unverified header: alg=%s kid=%s", header.get("alg"), header.get("kid"))
-    except InvalidTokenError as exc:
-        raise HTTPException(status_code=401, detail="토큰 형식이 올바르지 않습니다.") from exc
-
-    try:
-        signing_key = _jwks_client().get_signing_key_from_jwt(token)
-    except PyJWKClientError as exc:
-        logger.warning("JWKS에서 서명 키 조회 실패: %s", exc)
-        raise HTTPException(
-            status_code=401,
-            detail="인증 서버의 공개키(JWKS)를 불러오지 못했거나 토큰의 kid와 일치하는 키가 없습니다.",
-        ) from exc
-
-    try:
-        return jwt.decode(
-            token,
-            signing_key.key,
-            algorithms=list(_JWT_ALGORITHMS_JWKS),
-            audience="authenticated",
-            issuer=settings.supabase_jwt_issuer(),
-        )
-    except ExpiredSignatureError as exc:
-        raise HTTPException(status_code=401, detail="인증 토큰이 만료되었습니다.") from exc
-    except InvalidTokenError as exc:
-        raise HTTPException(
-            status_code=401,
-            detail="인증 토큰이 유효하지 않거나 서명·issuer·audience 검증에 실패했습니다.",
-        ) from exc
+        # 1. 서명 검증 없이 페이로드만 추출 (로컬의 ES256 시크릿 키 불일치 에러 완벽 회피)
+        unverified_payload = jwt.get_unverified_claims(token)
+        
+        # 2. Supabase Auth API를 통해 실제 토큰 유효성을 서버에서 검증 (캐싱 적용)
+        user_info = _get_user_from_supabase_cached(token)
+        
+        # 3. 사용자 정보 병합 후 반환
+        unverified_payload.update(user_info)
+        return unverified_payload
+        
+    except Exception as e:
+        print(f"JWT Verification Failed: {e}")  # 서버 로그(Railway) 확인용
+        raise HTTPException(status_code=401, detail=f"토큰 검증 실패: {str(e)}")
 
 
 async def get_current_user(
