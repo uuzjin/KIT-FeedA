@@ -1,9 +1,10 @@
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 
 from ..core.auth import get_current_user, require_instructor
+from ..core.config import settings
 from ..database import supabase
 from ..dependencies import require_instructor_of
 from ..schemas import (
@@ -16,7 +17,7 @@ from ..schemas import (
     ScheduleUpdateRequest,
 )
 
-router = APIRouter(prefix="/api/courses", tags=["courses"])
+router = APIRouter()
 
 
 def _format_course(row: dict) -> dict:
@@ -31,6 +32,73 @@ def _format_course(row: dict) -> dict:
         "description": row.get("description"),
         "createdAt": row.get("created_at"),
         "updatedAt": row.get("updated_at"),
+    }
+
+
+def _accept_invite_for_user(current_user: dict, token: str, expected_course_id: str | None) -> dict:
+    if current_user.get("role") != "STUDENT":
+        raise HTTPException(status_code=403, detail="학생만 초대 링크로 수강 등록할 수 있습니다.")
+
+    invite = (
+        supabase.table("course_invites")
+        .select("*")
+        .eq("token", token)
+        .maybe_single()
+        .execute()
+    )
+    if not invite.data:
+        raise HTTPException(status_code=404, detail="유효하지 않은 초대 코드입니다.")
+
+    course_id = invite.data["course_id"]
+    if expected_course_id is not None and course_id != expected_course_id:
+        raise HTTPException(status_code=400, detail="초대 링크가 이 강의와 일치하지 않습니다.")
+
+    expires_raw = invite.data.get("expires_at")
+    if expires_raw:
+        expires_at = datetime.fromisoformat(str(expires_raw).replace("Z", "+00:00"))
+        if datetime.now(timezone.utc) > expires_at:
+            raise HTTPException(status_code=410, detail="만료된 초대 링크입니다.")
+
+    existing = (
+        supabase.table("course_enrollments")
+        .select("id")
+        .eq("course_id", course_id)
+        .eq("student_id", current_user["id"])
+        .maybe_single()
+        .execute()
+    )
+    if existing.data:
+        raise HTTPException(status_code=409, detail="이미 이 강의에 수강 등록되어 있습니다.")
+
+    supabase.table("course_enrollments").upsert(
+        {"course_id": course_id, "student_id": current_user["id"], "join_method": "INVITE"},
+        on_conflict="course_id,student_id",
+    ).execute()
+
+    course_row = (
+        supabase.table("courses")
+        .select("course_name")
+        .eq("id", course_id)
+        .maybe_single()
+        .execute()
+    )
+    course_name = course_row.data.get("course_name") if course_row.data else ""
+
+    enroll_row = (
+        supabase.table("course_enrollments")
+        .select("joined_at")
+        .eq("course_id", course_id)
+        .eq("student_id", current_user["id"])
+        .maybe_single()
+        .execute()
+    )
+    joined_at = enroll_row.data.get("joined_at") if enroll_row.data else datetime.now(timezone.utc).isoformat()
+
+    return {
+        "message": "수강 등록이 완료되었습니다.",
+        "courseId": course_id,
+        "courseName": course_name,
+        "joinedAt": joined_at,
     }
 
 
@@ -113,7 +181,7 @@ def update_course(
     payload: CourseUpdateRequest,
     current_user: dict = Depends(require_instructor),
 ):
-    _require_instructor_of(course_id, current_user["id"])
+    require_instructor_of(course_id, current_user["id"])
 
     updates = {}
     if payload.courseName is not None:
@@ -166,7 +234,7 @@ def create_schedule(
     payload: ScheduleCreateRequest,
     current_user: dict = Depends(require_instructor),
 ):
-    _require_instructor_of(course_id, current_user["id"])
+    require_instructor_of(course_id, current_user["id"])
 
     result = supabase.table("course_schedules").insert({
         "course_id": course_id,
@@ -222,7 +290,7 @@ def update_schedule(
     payload: ScheduleUpdateRequest,
     current_user: dict = Depends(require_instructor),
 ):
-    _require_instructor_of(course_id, current_user["id"])
+    require_instructor_of(course_id, current_user["id"])
 
     updates = {k: v for k, v in payload.model_dump().items() if v is not None}
     if not updates:
@@ -265,7 +333,7 @@ def enroll_students(
     payload: EnrollStudentsRequest,
     current_user: dict = Depends(require_instructor),
 ):
-    _require_instructor_of(course_id, current_user["id"])
+    require_instructor_of(course_id, current_user["id"])
 
     rows = [
         {"course_id": course_id, "student_id": sid, "join_method": "DIRECT"}
@@ -285,49 +353,54 @@ def enroll_students(
 @router.post("/{course_id}/invites", status_code=201)
 def create_invite(
     course_id: str,
-    payload: InviteCreateRequest,
+    payload: InviteCreateRequest = Body(default_factory=InviteCreateRequest),
     current_user: dict = Depends(require_instructor),
 ):
-    _require_instructor_of(course_id, current_user["id"])
+    require_instructor_of(course_id, current_user["id"])
 
-    token = secrets.token_urlsafe(32)
-    result = supabase.table("course_invites").insert({
-        "course_id": course_id,
-        "created_by": current_user["id"],
-        "token": token,
-        "expires_at": payload.expiresAt,
-    }).execute()
+    expires_at = payload.expiresAt
+    if not expires_at:
+        expires_at = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
 
-    if not result.data:
-        raise HTTPException(status_code=500, detail="초대 링크 생성에 실패했습니다.")
+    base = (settings.FRONTEND_BASE_URL or "http://localhost:3000").rstrip("/")
 
-    return {"token": token, "expiresAt": payload.expiresAt}
+    for _ in range(5):
+        token = secrets.token_urlsafe(32)
+        result = supabase.table("course_invites").insert({
+            "course_id": course_id,
+            "created_by": current_user["id"],
+            "token": token,
+            "expires_at": expires_at,
+        }).execute()
+        if result.data:
+            row = result.data[0]
+            invite_link = f"{base}/join?token={token}"
+            created_at = row.get("created_at") or datetime.now(timezone.utc).isoformat()
+            return {
+                "courseId": course_id,
+                "inviteToken": token,
+                "inviteLink": invite_link,
+                "expiresAt": expires_at,
+                "createdAt": created_at,
+            }
+
+    raise HTTPException(status_code=500, detail="초대 링크 생성에 실패했습니다. 잠시 후 다시 시도하세요.")
 
 
-# ── 3.2.1-C 초대 링크로 수강 등록 ────────────────────────────────────────────
+# ── 3.2.1-C 초대 링크로 수강 등록 (토큰만) ────────────────────────────────────
 @router.post("/join", status_code=201)
 def join_via_invite(payload: JoinCourseRequest, current_user: dict = Depends(get_current_user)):
-    invite = (
-        supabase.table("course_invites")
-        .select("*")
-        .eq("token", payload.token)
-        .maybe_single()
-        .execute()
-    )
-    if not invite.data:
-        raise HTTPException(status_code=404, detail="유효하지 않은 초대 코드입니다.")
+    return _accept_invite_for_user(current_user, payload.token, None)
 
-    expires_at = datetime.fromisoformat(invite.data["expires_at"].replace("Z", "+00:00"))
-    if datetime.now(timezone.utc) > expires_at:
-        raise HTTPException(status_code=410, detail="만료된 초대 링크입니다.")
 
-    course_id = invite.data["course_id"]
-    supabase.table("course_enrollments").upsert(
-        {"course_id": course_id, "student_id": current_user["id"], "join_method": "INVITE"},
-        on_conflict="course_id,student_id",
-    ).execute()
-
-    return {"message": "수강 등록이 완료되었습니다.", "courseId": course_id}
+# ── 3.2.1-C-2 초대 링크로 수강 등록 (경로에 courseId·token; API 명세) ───────────
+@router.post("/{course_id}/invites/{token}/accept", status_code=201)
+def accept_invite_path(
+    course_id: str,
+    token: str,
+    current_user: dict = Depends(get_current_user),
+):
+    return _accept_invite_for_user(current_user, token, course_id)
 
 
 # ── 3.2.2 수강생 목록 조회 ────────────────────────────────────────────────────
@@ -359,14 +432,14 @@ def remove_enrollment(
     student_id: str,
     current_user: dict = Depends(require_instructor),
 ):
-    _require_instructor_of(course_id, current_user["id"])
+    require_instructor_of(course_id, current_user["id"])
     supabase.table("course_enrollments").delete().eq("course_id", course_id).eq("student_id", student_id).execute()
 
 
 # ── 3.2.4 수강생 참여 현황 ────────────────────────────────────────────────────
 @router.get("/{course_id}/enrollments/participation")
 def get_participation(course_id: str, current_user: dict = Depends(require_instructor)):
-    _require_instructor_of(course_id, current_user["id"])
+    require_instructor_of(course_id, current_user["id"])
 
     enrollments = (
         supabase.table("course_enrollments")

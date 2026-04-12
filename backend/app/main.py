@@ -69,7 +69,7 @@ app.add_exception_handler(RequestValidationError, validation_exception_handler)
 
 # ── 라우터 ─────────────────────────────────────────────────────────────────────
 app.include_router(users.router)
-app.include_router(courses.router)
+app.include_router(courses.router, prefix="/api/courses", tags=["courses"])
 app.include_router(scripts.router)
 app.include_router(materials.router)
 app.include_router(quiz.router)

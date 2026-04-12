@@ -110,8 +110,7 @@ export function CourseInviteLmsPanel({
     try {
       const expiresAt = defaultInviteExpiresAt();
       const res = await createCourseInvite(courseId, { expiresAt });
-      const base = typeof window !== "undefined" ? window.location.origin : "";
-      setInviteUrl(`${base}/join?token=${encodeURIComponent(res.inviteToken)}`);
+      setInviteUrl(res.inviteLink);
       setInviteExpires(res.expiresAt);
     } catch (e) {
       const msg =
