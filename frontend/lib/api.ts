@@ -137,10 +137,10 @@ export type Course = {
   courseName: string;
   semester: string;
   dayOfWeek: string[];
-  startTime: string;
-  endTime: string;
+  startTime: string | null;
+  endTime: string | null;
   maxStudents?: number;
-  description?: string;
+  description?: string | null;
   createdAt: string;
   updatedAt?: string;
 };
@@ -266,9 +266,21 @@ export async function getCourses(semester?: string) {
   );
 }
 
-export async function getCourseDetail(courseId: string): Promise<Course & { instructor: { userId: string; name: string; email: string }; currentStudents: number }> {
-  return request(
-    `/api/courses/${courseId}`
+export async function getCourseDetail(courseId: string): Promise<Course> {
+  return request<Course>(`/api/courses/${courseId}`);
+}
+
+export type CourseEnrollment = {
+  studentId: string;
+  name: string | null;
+  email: string | null;
+  joinMethod: string;
+  joinedAt: string;
+};
+
+export async function getCourseEnrollments(courseId: string) {
+  return request<{ students: CourseEnrollment[]; totalCount: number }>(
+    `/api/courses/${courseId}/enrollments`
   );
 }
 
@@ -276,8 +288,8 @@ export async function createCourse(payload: {
   courseName: string;
   semester: string;
   dayOfWeek: string[];
-  startTime: string;
-  endTime: string;
+  startTime: string | null;
+  endTime: string | null;
   maxStudents?: number;
   description?: string;
 }): Promise<Course> {
@@ -756,7 +768,21 @@ export async function getQuizComprehension(
   );
 }
 
-// Script Types
+/** 목록/상세 공통: 백엔드 `scripts._format_script` 응답 */
+export type CourseScriptListItem = {
+  scriptId: string;
+  courseId: string;
+  scheduleId?: string | null;
+  title: string;
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+  weekNumber?: number | null;
+  uploadedAt: string;
+  downloadUrl?: string;
+};
+
+// Script Types (분석 상세 등 — 별도 엔드포인트)
 export type ScriptAnalysis = {
   scriptId: string;
   fileName: string;
@@ -824,10 +850,58 @@ export async function uploadScript(
   };
 }
 
-export async function getCourseScripts(
-  courseId: string
-): Promise<{ scripts: ScriptAnalysis[] }> {
-  return request(`/api/courses/${courseId}/scripts`);
+export async function getCourseScripts(courseId: string) {
+  return request<{ scripts: CourseScriptListItem[]; totalCount: number }>(
+    `/api/courses/${courseId}/scripts`
+  );
+}
+
+export type PreviewGuideSummary = {
+  previewGuideId: string;
+  courseId: string;
+  scheduleId: string;
+  title: string;
+  status: string;
+  createdAt: string;
+  completedAt?: string | null;
+};
+
+export type ReviewSummarySummary = {
+  reviewSummaryId: string;
+  courseId: string;
+  scheduleId: string;
+  title: string;
+  status: string;
+  createdAt: string;
+  completedAt?: string | null;
+};
+
+/** 스케줄별 예습 가이드가 없으면 null (404 무시) */
+export async function getPreviewGuideForSchedule(
+  courseId: string,
+  scheduleId: string
+): Promise<PreviewGuideSummary | null> {
+  const authHeaders = await getAuthHeaders();
+  const response = await fetch(
+    `${API_BASE_URL}/api/courses/${courseId}/schedules/${scheduleId}/preview-guides`,
+    { headers: authHeaders }
+  );
+  if (!response.ok) return null;
+  return (await response.json()) as PreviewGuideSummary;
+}
+
+/** 스케줄별 복습 요약이 없으면 null (404 무시) */
+export async function getReviewSummaryForSchedule(
+  courseId: string,
+  scheduleId: string
+): Promise<ReviewSummarySummary | null> {
+  const authHeaders = await getAuthHeaders();
+  const response = await fetch(
+    `${API_BASE_URL}/api/courses/${courseId}/schedules/${scheduleId}/review-summaries`,
+    { headers: authHeaders }
+  );
+  if (!response.ok) return null;
+  return (await response.json()) as ReviewSummarySummary;
 }
 
 export async function getScriptAnalysis(
