@@ -34,64 +34,12 @@ import {
 } from "@/lib/api";
 import { supabase } from "@/lib/supabase/client";
 
-const previewMaterials = [
-  {
-    id: 1,
-    week: "3주차",
-    title: "SQL 기초 - SELECT 구문",
-    status: "draft",
-    lastModified: "2시간 전",
-    aiAnalysis: { score: 85, issues: 2 },
-  },
-  {
-    id: 2,
-    week: "4주차",
-    title: "정규화 이론",
-    status: "published",
-    lastModified: "3일 전",
-    aiAnalysis: { score: 92, issues: 0 },
-  },
-];
-
-const reviewMaterials = [
-  {
-    id: 1,
-    week: "1주차",
-    title: "데이터베이스 개요 복습",
-    status: "published",
-    downloads: 42,
-    lastModified: "1주 전",
-  },
-  {
-    id: 2,
-    week: "2주차",
-    title: "관계형 모델 정리",
-    status: "published",
-    downloads: 38,
-    lastModified: "4일 전",
-  },
-];
-
-const scripts = [
-  {
-    id: 1,
-    title: "3주차 강의 스크립트",
-    format: "PDF",
-    uploadDate: "오늘",
-    status: "analyzing",
-    progress: 65,
-  },
-  {
-    id: 2,
-    title: "2주차 슬라이드 노트",
-    format: "PPTX",
-    uploadDate: "3일 전",
-    status: "completed",
-    issues: 3,
-  },
-];
-
 export function TeacherMaterials() {
+  // TODO: 실제 환경에서는 백엔드 API를 호출하여 데이터를 설정해야 합니다.
+  const [previewMaterials, setPreviewMaterials] = useState<any[]>([]);
+  const [reviewMaterials, setReviewMaterials] = useState<any[]>([]);
+  const [scripts, setScripts] = useState<any[]>([]);
+
   const [activeTab, setActiveTab] = useState("preview");
   const [audioTask, setAudioTask] = useState<AudioConvertTask | null>(null);
   const [analysisReport, setAnalysisReport] = useState<AnalysisReport | null>(
@@ -106,6 +54,88 @@ export function TeacherMaterials() {
   const courseId = "crs_001";
 
   useEffect(() => {
+    const fetchMaterialsData = async () => {
+      try {
+        // 1. 예습 자료 (preview_guides) 조회
+        const { data: previewData } = await supabase
+          .from("preview_guides")
+          .select("*")
+          .eq("course_id", courseId)
+          .order("created_at", { ascending: false });
+
+        if (previewData) {
+          setPreviewMaterials(
+            previewData.map((p) => ({
+              id: p.id,
+              week: "주차 미정", // 필요 시 schedule_id와 조인하여 표시
+              title: p.title || "제목 없는 예습 가이드",
+              status: p.status === "completed" ? "published" : "draft",
+              lastModified: new Date(p.created_at).toLocaleDateString(),
+              aiAnalysis: null,
+            })),
+          );
+        }
+
+        // 2. 복습 자료 (review_summaries) 조회
+        const { data: reviewData } = await supabase
+          .from("review_summaries")
+          .select("*")
+          .eq("course_id", courseId)
+          .order("created_at", { ascending: false });
+
+        if (reviewData) {
+          setReviewMaterials(
+            reviewData.map((r) => ({
+              id: r.id,
+              week: "주차 미정",
+              title: r.title || "제목 없는 복습 요약",
+              status: r.status === "completed" ? "published" : "draft",
+              downloads: 0,
+              lastModified: new Date(r.created_at).toLocaleDateString(),
+            })),
+          );
+        }
+
+        // 3. 스크립트/음성 목록 조회 (백엔드 API 호출)
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        const headers: Record<string, string> = {};
+        if (session?.access_token) {
+          headers["Authorization"] = `Bearer ${session.access_token}`;
+        }
+
+        const res = await fetch(
+          `${process.env.NEXT_PUBLIC_API_BASE_URL || ""}/api/courses/${courseId}/scripts`,
+          { headers },
+        );
+
+        if (res.ok) {
+          const scriptData = await res.json();
+          const list = scriptData.scripts || scriptData; // 백엔드 응답 포맷 대응
+          if (Array.isArray(list)) {
+            setScripts(
+              list.map((s: any) => ({
+                id: s.id,
+                title: s.title || s.file_name || "업로드된 스크립트",
+                format: (s.file_name?.split(".").pop() || "문서").toUpperCase(),
+                uploadDate: new Date(
+                  s.created_at || Date.now(),
+                ).toLocaleDateString(),
+                status: s.status === "completed" ? "completed" : "analyzing",
+                progress: s.progress || 0,
+                issues: s.issues_count || 0,
+              })),
+            );
+          }
+        }
+      } catch (error) {
+        console.error("강의 자료 데이터를 불러오는 중 오류 발생:", error);
+      }
+    };
+
+    void fetchMaterialsData();
+
     const loadReport = async () => {
       try {
         const report = await getAnalysisReport();
