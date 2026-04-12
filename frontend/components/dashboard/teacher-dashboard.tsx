@@ -29,34 +29,44 @@ import {
   WeakTopicItem,
   UploadStatusItem,
 } from "@/lib/api";
+import { useAuth } from "@/contexts/auth-context";
 
 export function TeacherDashboard() {
   const router = useRouter();
+  const { user, isLoading: isAuthLoading } = useAuth();
   const [trends, setTrends] = useState<ComprehensionTrendItem[]>([]);
   const [weakTopics, setWeakTopics] = useState<WeakTopicItem[]>([]);
   const [uploadStatus, setUploadStatus] = useState<UploadStatusItem[]>([]);
   const [completionRate, setCompletionRate] = useState(0);
-  const [overallTrend, setOverallTrend] = useState<"IMPROVING" | "DECLINING" | "STABLE">("STABLE");
+  const [overallTrend, setOverallTrend] = useState<
+    "IMPROVING" | "DECLINING" | "STABLE"
+  >("STABLE");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (isAuthLoading || !user) return;
+
     const loadData = async () => {
       setIsLoading(true);
       setError(null);
       try {
-        const [trendsData, weakTopicsData, uploadStatusData] = await Promise.all([
-          getInstructorComprehensionTrends(),
-          getInstructorWeakTopics(),
-          getInstructorUploadStatus(),
-        ]);
+        const [trendsData, weakTopicsData, uploadStatusData] =
+          await Promise.all([
+            getInstructorComprehensionTrends(),
+            getInstructorWeakTopics(),
+            getInstructorUploadStatus(),
+          ]);
         setTrends(trendsData.trends || []);
         setOverallTrend(trendsData.overallTrend || "STABLE");
         setWeakTopics(weakTopicsData.weakTopics || []);
         setUploadStatus(uploadStatusData.uploadStatus || []);
         setCompletionRate(uploadStatusData.completionRate || 0);
       } catch (err) {
-        const message = err instanceof Error ? err.message : "대시보드 데이터를 불러오지 못했습니다.";
+        const message =
+          err instanceof Error
+            ? err.message
+            : "대시보드 데이터를 불러오지 못했습니다.";
         setError(message);
         setTrends([]);
         setWeakTopics([]);
@@ -66,19 +76,22 @@ export function TeacherDashboard() {
       }
     };
     void loadData();
-  }, []);
+  }, [isAuthLoading, user]);
 
   const weeklyStats = useMemo(() => {
-    const uniqueCourses = new Set(trends.map(t => t.courseId)).size;
+    const uniqueCourses = new Set(trends.map((t) => t.courseId)).size;
     const completedCount = uploadStatus.filter((u) => {
-      const isComplete = (u.previewGuide || u.reviewSummary || u.script);
+      const isComplete = u.previewGuide || u.reviewSummary || u.script;
       return isComplete;
     }).length;
 
     // 평균 이해도 계산
-    const avgUnderstanding = trends.length > 0
-      ? Math.round(trends.reduce((sum, t) => sum + t.averageScore, 0) / trends.length)
-      : 0;
+    const avgUnderstanding =
+      trends.length > 0
+        ? Math.round(
+            trends.reduce((sum, t) => sum + t.averageScore, 0) / trends.length,
+          )
+        : 0;
 
     return [
       {
@@ -119,7 +132,9 @@ export function TeacherDashboard() {
       .map((item) => ({
         week: item.weekNumber,
         topic: item.topic,
-        pending: (!item.previewGuide ? "예습 " : "") + (!item.reviewSummary ? "복습" : ""),
+        pending:
+          (!item.previewGuide ? "예습 " : "") +
+          (!item.reviewSummary ? "복습" : ""),
       }));
   }, [uploadStatus]);
 
@@ -127,7 +142,7 @@ export function TeacherDashboard() {
     return weakTopics.slice(0, 3);
   }, [weakTopics]);
 
-  if (isLoading) {
+  if (isAuthLoading || isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Loader2 className="size-8 animate-spin text-primary" />
@@ -139,7 +154,7 @@ export function TeacherDashboard() {
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 p-4 pb-24">
       {/* 주요 액션 버튼 */}
       <div className="grid grid-cols-2 gap-3 sm:gap-4">
-        <Card 
+        <Card
           className="group cursor-pointer border-border/40 bg-linear-to-br from-amber-500/10 to-amber-600/5 shadow-sm transition-all hover:from-amber-500/20 hover:to-amber-600/10 hover:shadow-lg hover:border-amber-400/50"
           onClick={() => router.push("/materials")}
         >
@@ -149,13 +164,17 @@ export function TeacherDashboard() {
                 <Upload className="size-6 text-amber-600 group-hover:text-amber-700" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-foreground group-hover:text-amber-600">자료 업로드</p>
-                <p className="text-xs text-muted-foreground mt-1">강의 자료를 업로드하세요</p>
+                <p className="text-sm font-semibold text-foreground group-hover:text-amber-600">
+                  자료 업로드
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  강의 자료를 업로드하세요
+                </p>
               </div>
             </div>
           </CardContent>
         </Card>
-        <Card 
+        <Card
           className="group cursor-pointer border-border/40 bg-linear-to-br from-violet-500/10 to-violet-600/5 shadow-sm transition-all hover:from-violet-500/20 hover:to-violet-600/10 hover:shadow-lg hover:border-violet-400/50"
           onClick={() => router.push("/analysis")}
         >
@@ -165,8 +184,12 @@ export function TeacherDashboard() {
                 <Sparkles className="size-6 text-violet-600 group-hover:text-violet-700" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-foreground group-hover:text-violet-600">AI 분석</p>
-                <p className="text-xs text-muted-foreground mt-1">학생 데이터를 분석하세요</p>
+                <p className="text-sm font-semibold text-foreground group-hover:text-violet-600">
+                  AI 분석
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  학생 데이터를 분석하세요
+                </p>
               </div>
             </div>
           </CardContent>
@@ -175,18 +198,29 @@ export function TeacherDashboard() {
 
       {/* 주간 통계 */}
       <section>
-        <h2 className="mb-3 text-sm font-semibold text-foreground">{"주간 통계"}</h2>
+        <h2 className="mb-3 text-sm font-semibold text-foreground">
+          {"주간 통계"}
+        </h2>
         <ScrollArea className="w-full">
           <div className="flex gap-3 pb-2">
             {weeklyStats.map((stat) => (
-              <Card key={stat.label} className="min-w-35 shrink-0 border-border/40">
+              <Card
+                key={stat.label}
+                className="min-w-35 shrink-0 border-border/40"
+              >
                 <CardContent className="flex items-center gap-3 p-4">
-                  <div className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${stat.bg}`}>
+                  <div
+                    className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${stat.bg}`}
+                  >
                     <stat.icon className={`size-5 ${stat.color}`} />
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">{stat.label}</p>
-                    <p className="text-lg font-bold text-foreground">{stat.value}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {stat.label}
+                    </p>
+                    <p className="text-lg font-bold text-foreground">
+                      {stat.value}
+                    </p>
                   </div>
                 </CardContent>
               </Card>
@@ -199,15 +233,24 @@ export function TeacherDashboard() {
       {/* 미완료 항목 */}
       <section>
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-foreground">{"미완료 항목"}</h2>
-          <Button variant="ghost" size="sm" className="h-7 text-xs text-primary">
+          <h2 className="text-sm font-semibold text-foreground">
+            {"미완료 항목"}
+          </h2>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs text-primary"
+          >
             {"모두 보기"}
           </Button>
         </div>
         <div className="flex flex-col gap-2">
           {pendingDeadlines.length > 0 ? (
             pendingDeadlines.map((item, index) => (
-              <Card key={index} className="border-l-4 border-l-amber-500 border-border/40">
+              <Card
+                key={index}
+                className="border-l-4 border-l-amber-500 border-border/40"
+              >
                 <CardContent className="flex items-center justify-between p-4">
                   <div className="flex items-center gap-3">
                     <div className="flex size-10 items-center justify-center rounded-xl bg-amber-500/10">
@@ -217,7 +260,9 @@ export function TeacherDashboard() {
                       <p className="text-sm font-medium text-foreground">
                         {`${item.week}주차 - ${item.topic}`}
                       </p>
-                      <p className="text-xs text-muted-foreground">{item.pending}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {item.pending}
+                      </p>
                     </div>
                   </div>
                   <Badge variant="secondary" className="shrink-0">
@@ -239,13 +284,19 @@ export function TeacherDashboard() {
       {/* 자료 업로드 현황 */}
       <section>
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-foreground">{"자료 업로드 현황"}</h2>
+          <h2 className="text-sm font-semibold text-foreground">
+            {"자료 업로드 현황"}
+          </h2>
         </div>
         <Card className="border-border/40">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-xs font-semibold">{"완료율"}</CardTitle>
-              <span className="text-sm font-bold text-primary">{Math.round(completionRate)}%</span>
+              <CardTitle className="text-xs font-semibold">
+                {"완료율"}
+              </CardTitle>
+              <span className="text-sm font-bold text-primary">
+                {Math.round(completionRate)}%
+              </span>
             </div>
           </CardHeader>
           <CardContent className="pt-0">
@@ -253,13 +304,19 @@ export function TeacherDashboard() {
             <div className="flex flex-col gap-3">
               {uploadStatus.length > 0 ? (
                 uploadStatus.slice(0, 5).map((item) => {
-                  const isComplete = item.previewGuide || item.reviewSummary || item.script;
+                  const isComplete =
+                    item.previewGuide || item.reviewSummary || item.script;
                   return (
-                    <div key={`${item.weekNumber}-${item.topic}`} className="flex items-center justify-between">
+                    <div
+                      key={`${item.weekNumber}-${item.topic}`}
+                      className="flex items-center justify-between"
+                    >
                       <div className="flex items-center gap-3">
-                        <div className={`flex size-8 items-center justify-center rounded-lg ${
-                          isComplete ? "bg-emerald-500/10" : "bg-muted"
-                        }`}>
+                        <div
+                          className={`flex size-8 items-center justify-center rounded-lg ${
+                            isComplete ? "bg-emerald-500/10" : "bg-muted"
+                          }`}
+                        >
                           {isComplete ? (
                             <CheckCircle className="size-4 text-emerald-500" />
                           ) : (
@@ -270,13 +327,27 @@ export function TeacherDashboard() {
                           <p className="text-sm font-medium text-foreground">
                             {`${item.weekNumber}주차`}
                           </p>
-                          <p className="text-xs text-muted-foreground">{item.topic}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {item.topic}
+                          </p>
                         </div>
                       </div>
                       <div className="flex gap-1">
-                        {item.previewGuide && <Badge variant="outline" className="text-xs">{"예습"}</Badge>}
-                        {item.reviewSummary && <Badge variant="outline" className="text-xs">{"복습"}</Badge>}
-                        {item.script && <Badge variant="outline" className="text-xs">{"스크립트"}</Badge>}
+                        {item.previewGuide && (
+                          <Badge variant="outline" className="text-xs">
+                            {"예습"}
+                          </Badge>
+                        )}
+                        {item.reviewSummary && (
+                          <Badge variant="outline" className="text-xs">
+                            {"복습"}
+                          </Badge>
+                        )}
+                        {item.script && (
+                          <Badge variant="outline" className="text-xs">
+                            {"스크립트"}
+                          </Badge>
+                        )}
                       </div>
                     </div>
                   );
@@ -313,8 +384,8 @@ export function TeacherDashboard() {
                         {Math.round(topic.wrongRate * 100)}% 오답
                       </span>
                     </div>
-                    <Progress 
-                      value={Math.min(100, Math.round(topic.wrongRate * 100))} 
+                    <Progress
+                      value={Math.min(100, Math.round(topic.wrongRate * 100))}
                       className="h-2"
                     />
                   </div>
@@ -340,18 +411,29 @@ export function TeacherDashboard() {
           </CardHeader>
           <CardContent className="pt-0">
             <div className="mb-4 flex items-center gap-2">
-              <Badge variant={
-                overallTrend === "IMPROVING" ? "default" :
-                overallTrend === "DECLINING" ? "destructive" : "secondary"
-              }>
-                {overallTrend === "IMPROVING" ? "📈 개선 중" :
-                 overallTrend === "DECLINING" ? "📉 하락 중" : "➡️ 안정적"}
+              <Badge
+                variant={
+                  overallTrend === "IMPROVING"
+                    ? "default"
+                    : overallTrend === "DECLINING"
+                      ? "destructive"
+                      : "secondary"
+                }
+              >
+                {overallTrend === "IMPROVING"
+                  ? "📈 개선 중"
+                  : overallTrend === "DECLINING"
+                    ? "📉 하락 중"
+                    : "➡️ 안정적"}
               </Badge>
             </div>
             <div className="flex flex-col gap-3">
               {trends.length > 0 ? (
                 trends.slice(0, 5).map((trend) => (
-                  <div key={trend.quizId} className="flex items-center justify-between">
+                  <div
+                    key={trend.quizId}
+                    className="flex items-center justify-between"
+                  >
                     <div>
                       <p className="text-sm font-medium text-foreground">
                         {`${trend.weekNumber}주차 - ${trend.topic}`}
@@ -361,7 +443,9 @@ export function TeacherDashboard() {
                       </p>
                     </div>
                     <div className="text-right">
-                      <p className="text-sm font-bold text-primary">{trend.averageScore}%</p>
+                      <p className="text-sm font-bold text-primary">
+                        {trend.averageScore}%
+                      </p>
                     </div>
                   </div>
                 ))
