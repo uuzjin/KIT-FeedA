@@ -16,6 +16,23 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { ArrowLeft, Loader2 } from "lucide-react";
 
+function toKoreanCreateError(err: unknown): string {
+  if (!(err instanceof Error)) {
+    return "강의를 만들지 못했습니다. 잠시 후 다시 시도해주세요.";
+  }
+  const raw = err.message.trim();
+  if (!raw) {
+    return "강의를 만들지 못했습니다. 잠시 후 다시 시도해주세요.";
+  }
+  if (/^HTTP error/i.test(raw) || /^fetch/i.test(raw)) {
+    return "서버와 통신하지 못했습니다. 네트워크 상태를 확인한 뒤 다시 시도해주세요.";
+  }
+  if (raw.includes("인증 토큰")) {
+    return raw;
+  }
+  return raw;
+}
+
 const DAY_OPTIONS = [
   { value: "월", label: "월" },
   { value: "화", label: "화" },
@@ -49,7 +66,7 @@ export default function CreateCoursePage() {
 
   useEffect(() => {
     if (isHydrated && !isLoading && user && user.role !== "INSTRUCTOR") {
-      router.replace("/dashboard");
+      router.replace("/");
     }
   }, [user, isLoading, isHydrated, router]);
 
@@ -64,7 +81,7 @@ export default function CreateCoursePage() {
     setSubmitting(true);
     try {
       const max = parseInt(maxStudents, 10);
-      const created = await createCourse({
+      await createCourse({
         courseName: courseName.trim(),
         semester: semester.trim(),
         dayOfWeek,
@@ -73,10 +90,9 @@ export default function CreateCoursePage() {
         maxStudents: Number.isFinite(max) ? max : 50,
         description: description.trim() || undefined,
       });
-      router.push(`/courses/${created.courseId}`);
+      router.push("/");
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "강의를 만들지 못했습니다.";
-      setError(msg);
+      setError(toKoreanCreateError(err));
     } finally {
       setSubmitting(false);
     }
@@ -102,9 +118,9 @@ export default function CreateCoursePage() {
       <div className="mx-auto max-w-xl space-y-6 px-4 py-8">
         <div>
           <Button variant="ghost" size="sm" className="mb-4 gap-1 px-0 text-muted-foreground" asChild>
-            <Link href="/dashboard">
+            <Link href="/">
               <ArrowLeft className="size-4" />
-              강의 목록
+              대시보드
             </Link>
           </Button>
           <h1 className="text-2xl font-semibold tracking-tight">강의 개설</h1>

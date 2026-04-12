@@ -6,7 +6,33 @@ import httpx
 
 from .config import settings
 
-_bearer = HTTPBearer()
+logger = logging.getLogger(__name__)
+
+_bearer = HTTPBearer(auto_error=False)
+
+# JWKS에 올 수 있는 비대칭 alg (Supabase는 ES256이 일반적; 키 종류에 따라 RS256도 허용)
+_JWT_ALGORITHMS_JWKS: Final[tuple[str, ...]] = ("ES256", "RS256")
+
+
+@lru_cache(maxsize=1)
+def _jwks_client() -> PyJWKClient:
+    uri = settings.supabase_jwks_uri()
+    # 일부 호스팅/엣지에서 anon 키를 요구하는 경우가 있어 apikey 헤더를 붙인다 (공개 JWKS라 무해).
+    headers: dict[str, str] = {}
+    if (settings.SUPABASE_KEY or "").strip():
+        headers["apikey"] = settings.SUPABASE_KEY.strip()
+    return PyJWKClient(uri, headers=headers or None)
+
+
+def _extract_bearer_token(credentials: HTTPAuthorizationCredentials | None) -> str:
+    if credentials is None:
+        raise HTTPException(status_code=401, detail="인증 토큰이 필요합니다.")
+    if credentials.scheme.lower() != "bearer":
+        raise HTTPException(status_code=401, detail="Authorization은 Bearer 스킴이어야 합니다.")
+    token = (credentials.credentials or "").strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="인증 토큰이 필요합니다.")
+    return token
 
 @lru_cache(maxsize=1000)
 def _get_user_from_supabase_cached(token: str) -> dict:
@@ -50,11 +76,12 @@ def _decode_token(token: str) -> dict:
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(_bearer),
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
 ) -> dict:
     from ..database import supabase
 
-    payload = _decode_token(credentials.credentials)
+    token = _extract_bearer_token(credentials)
+    payload = _decode_token(token)
     user_id: str | None = payload.get("sub")
     if not user_id:
         raise HTTPException(status_code=401, detail="토큰에서 사용자 정보를 확인할 수 없습니다.")
@@ -63,7 +90,7 @@ async def get_current_user(
         result = supabase.table("profiles").select("id, name, email, role, deleted_at").eq("id", user_id).maybe_single().execute()
         data = result.data
     except Exception as e:
-        print(f"Supabase DB profile query failed: {e}")
+        logger.warning("Supabase profiles 조회 실패 (user_id=%s): %s", user_id, e)
         data = None
 
     if data:
@@ -71,15 +98,14 @@ async def get_current_user(
             raise HTTPException(status_code=403, detail="탈퇴 처리된 계정입니다.")
         return data
 
-    # DB 조회 실패(RLS 권한 문제 등) 시 JWT 토큰의 메타데이터를 사용하여 인증 통과
-    print(f"Fallback to token metadata for user: {user_id}")
-    meta = payload.get("user_metadata", {})
-    email = payload.get("email", "")
+    logger.info("profiles 미존재/조회 불가 — JWT 클레임으로 폴백 (user_id=%s)", user_id)
+    meta = payload.get("user_metadata") or {}
+    email = payload.get("email") or ""
     return {
         "id": user_id,
         "email": email,
         "name": meta.get("name", email.split("@")[0] if email else "사용자"),
-        "role": meta.get("role", "STUDENT")
+        "role": meta.get("role", "STUDENT"),
     }
 
 

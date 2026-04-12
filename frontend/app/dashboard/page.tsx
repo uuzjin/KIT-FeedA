@@ -7,11 +7,10 @@ import { AppShell } from "@/components/layout/app-shell";
 import { useAuth } from "@/contexts/auth-context";
 import { getCourses, type Course } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { CalendarDays, Clock, Plus, Users } from "lucide-react";
+import { CalendarDays, Clock, Users } from "lucide-react";
 
 function formatDays(days: string[]) {
   if (!days?.length) return "요일 미정";
@@ -73,7 +72,13 @@ export default function DashboardPage() {
   }, [user, isLoading, isHydrated, router]);
 
   useEffect(() => {
-    if (!user) return;
+    if (isHydrated && !isLoading && user?.role === "INSTRUCTOR") {
+      router.replace("/");
+    }
+  }, [user, isLoading, isHydrated, router]);
+
+  useEffect(() => {
+    if (!user || user.role === "INSTRUCTOR") return;
 
     const run = async () => {
       setListLoading(true);
@@ -110,7 +115,16 @@ export default function DashboardPage() {
     return null;
   }
 
-  const isInstructor = user.role === "INSTRUCTOR";
+  if (user.role === "INSTRUCTOR") {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3">
+          <Spinner className="size-8 text-primary" />
+          <p className="text-sm text-muted-foreground">이동 중...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <AppShell>
@@ -118,20 +132,8 @@ export default function DashboardPage() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">강의</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {isInstructor
-                ? "담당 중인 강의를 선택하거나 새로 개설하세요."
-                : "수강 중인 강의 목록입니다."}
-            </p>
+            <p className="mt-1 text-sm text-muted-foreground">수강 중인 강의 목록입니다.</p>
           </div>
-          {isInstructor && (
-            <Button asChild className="shrink-0 gap-2">
-              <Link href="/courses/create">
-                <Plus className="size-4" />
-                강의 개설
-              </Link>
-            </Button>
-          )}
         </div>
 
         {loadError && (
@@ -149,11 +151,6 @@ export default function DashboardPage() {
           <Card className="border-dashed">
             <CardContent className="flex flex-col items-center justify-center gap-4 py-16 text-center">
               <p className="text-muted-foreground">등록된 강의가 없습니다.</p>
-              {isInstructor && (
-                <Button asChild>
-                  <Link href="/courses/create">첫 강의 만들기</Link>
-                </Button>
-              )}
             </CardContent>
           </Card>
         ) : (

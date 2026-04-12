@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   Menu,
   Settings,
@@ -9,6 +10,8 @@ import {
   Trash2,
   GraduationCap,
   BookOpen,
+  Plus,
+  Loader2,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -34,86 +37,28 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { EditProfileModal } from "@/components/profile/edit-profile-modal";
 import { DeleteAccountDialog } from "@/components/profile/delete-account-dialog";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
+import { getCourses, type Course } from "@/lib/api";
 
-import logo from "@/assets/logo.svg";
-
-const teacherCourses = [
-  {
-    id: 1,
-    name: "데이터베이스 개론",
-    semester: "2024-1",
-    day: "월/수",
-    time: "10:00-11:30",
-    students: 45,
-  },
-  {
-    id: 2,
-    name: "운영체제",
-    semester: "2024-1",
-    day: "화/목",
-    time: "13:00-14:30",
-    students: 38,
-  },
-  {
-    id: 3,
-    name: "컴퓨터 네트워크",
-    semester: "2024-1",
-    day: "월/수",
-    time: "14:00-15:30",
-    students: 42,
-  },
-  {
-    id: 4,
-    name: "소프트웨어 공학",
-    semester: "2024-1",
-    day: "금",
-    time: "10:00-13:00",
-    students: 31,
-  },
-];
-
-const studentCourses = [
-  {
-    id: 1,
-    name: "데이터베이스 개론",
-    semester: "2024-1",
-    day: "월/수",
-    time: "10:00-11:30",
-    professor: "김교수",
-  },
-  {
-    id: 2,
-    name: "운영체제",
-    semester: "2024-1",
-    day: "화/목",
-    time: "13:00-14:30",
-    professor: "박교수",
-  },
-  {
-    id: 3,
-    name: "컴퓨터 네트워크",
-    semester: "2024-1",
-    day: "월/수",
-    time: "14:00-15:30",
-    professor: "이교수",
-  },
-  {
-    id: 4,
-    name: "소프트웨어 공학",
-    semester: "2024-1",
-    day: "금",
-    time: "10:00-13:00",
-    professor: "최교수",
-  },
-];
+function formatCourseSchedule(course: Course) {
+  const days =
+    course.dayOfWeek?.length > 0 ? course.dayOfWeek.join("/") : "요일 미정";
+  const time =
+    course.startTime && course.endTime
+      ? `${course.startTime}–${course.endTime}`
+      : "시간 미정";
+  return { days, time };
+}
 
 export function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [menuCourses, setMenuCourses] = useState<Course[]>([]);
+  const [menuCoursesLoading, setMenuCoursesLoading] = useState(false);
+  const [menuCoursesError, setMenuCoursesError] = useState<string | null>(null);
   const [notifications, setNotifications] = useState({
     quiz: true,
     material: true,
@@ -131,8 +76,40 @@ export function Header() {
     }
   };
 
-  const courses = user?.role === "INSTRUCTOR" ? teacherCourses : studentCourses;
   const isTeacher = user?.role === "INSTRUCTOR";
+
+  useEffect(() => {
+    if (!isMenuOpen || !user) return;
+
+    let cancelled = false;
+    const load = async () => {
+      setMenuCoursesLoading(true);
+      setMenuCoursesError(null);
+      try {
+        const res = await getCourses();
+        if (!cancelled) {
+          setMenuCourses(res.courses);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          const msg =
+            e instanceof Error
+              ? e.message
+              : "강의 목록을 불러오지 못했습니다.";
+          setMenuCoursesError(msg);
+          setMenuCourses([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setMenuCoursesLoading(false);
+        }
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [isMenuOpen, user]);
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-card/95 backdrop-blur-sm supports-backdrop-filter:bg-card/80">
@@ -165,36 +142,68 @@ export function Header() {
                   : "수강 중인 강의를 선택하세요"}
               </SheetDescription>
             </SheetHeader>
-            <ScrollArea className="h-[calc(100vh-220px)]">
-              <div className="flex flex-col gap-2 p-4">
-                {courses.map((course) => (
-                  <button
-                    key={course.id}
-                    className="group flex flex-col gap-2 rounded-xl border border-transparent bg-secondary/50 p-4 text-left transition-all hover:border-primary/20 hover:bg-primary/5 hover:shadow-sm active:scale-[0.98]"
+            {isTeacher && (
+              <div className="border-b border-border/40 px-4 pb-4">
+                <Button asChild className="w-full gap-2 shadow-sm">
+                  <Link
+                    href="/courses/create"
                     onClick={() => setIsMenuOpen(false)}
                   >
-                    <div className="flex items-start justify-between">
-                      <span className="font-semibold text-foreground group-hover:text-primary">
-                        {course.name}
-                      </span>
-                      <Badge variant="secondary" className="text-xs">
-                        {isTeacher && "students" in course
-                          ? `${course.students}명`
-                          : "professor" in course
-                            ? course.professor
-                            : ""}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-medium">
-                        {course.semester}
-                      </span>
-                      <span>{course.day}</span>
-                      <span className="text-muted-foreground/60">|</span>
-                      <span>{course.time}</span>
-                    </div>
-                  </button>
-                ))}
+                    <Plus className="size-4 shrink-0" />
+                    강의 개설
+                  </Link>
+                </Button>
+              </div>
+            )}
+            <ScrollArea className="h-[calc(100vh-280px)]">
+              <div className="flex flex-col gap-2 p-4">
+                {menuCoursesLoading ? (
+                  <div className="flex flex-col items-center justify-center gap-2 py-12 text-muted-foreground">
+                    <Loader2 className="size-8 animate-spin text-primary" />
+                    <span className="text-sm">불러오는 중...</span>
+                  </div>
+                ) : menuCoursesError ? (
+                  <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                    {menuCoursesError}
+                  </p>
+                ) : menuCourses.length === 0 ? (
+                  <p className="py-8 text-center text-sm text-muted-foreground">
+                    {isTeacher
+                      ? "개설된 강의가 없습니다."
+                      : "수강 중인 강의가 없습니다."}
+                  </p>
+                ) : (
+                  menuCourses.map((course) => {
+                    const { days, time } = formatCourseSchedule(course);
+                    return (
+                      <Link
+                        key={course.courseId}
+                        href={`/courses/${course.courseId}`}
+                        className="group flex flex-col gap-2 rounded-xl border border-transparent bg-secondary/50 p-4 text-left transition-all hover:border-primary/20 hover:bg-primary/5 hover:shadow-sm active:scale-[0.98]"
+                        onClick={() => setIsMenuOpen(false)}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="font-semibold text-foreground group-hover:text-primary">
+                            {course.courseName}
+                          </span>
+                          {course.maxStudents != null && isTeacher && (
+                            <Badge variant="secondary" className="shrink-0 text-xs">
+                              정원 {course.maxStudents}명
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                          <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-medium">
+                            {course.semester}
+                          </span>
+                          <span>{days}</span>
+                          <span className="text-muted-foreground/60">|</span>
+                          <span>{time}</span>
+                        </div>
+                      </Link>
+                    );
+                  })
+                )}
               </div>
             </ScrollArea>
             <Separator />
