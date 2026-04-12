@@ -13,7 +13,7 @@ def _decode_token(token: str) -> dict:
         return jwt.decode(
             token,
             settings.SUPABASE_JWT_SECRET,
-            algorithms=["HS256"],
+            algorithms=["HS256", "RS256"],
             options={"verify_aud": False},
         )
     except JWTError as e:
