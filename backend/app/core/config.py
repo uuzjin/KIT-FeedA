@@ -4,11 +4,13 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     SUPABASE_URL: str
     SUPABASE_KEY: str
-    SUPABASE_JWT_SECRET: str
-    # RS256 등 비대칭 서명 시 PEM 공개키 (한 줄 \n 이스케이프 또는 멀티라인 .env)
-    SUPABASE_JWT_PUBLIC_KEY_PEM: str = ""
-    # 허용 JWT alg 목록 (쉼표 구분). 기본 HS256; 필요 시 "HS256,RS256"
-    SUPABASE_JWT_ALGORITHMS: str = "HS256"
+    # 비대칭(JWKS) 전환 후에는 사용자 JWT 검증에 쓰이지 않을 수 있으나, 레거시/다른 도구용으로 유지
+    SUPABASE_JWT_SECRET: str = ""
+    # 비우면 SUPABASE_URL 기준으로 공식 JWKS URL을 만든다.
+    # 공식: …/auth/v1/.well-known/jwks.json  (문서상 /auth/v1/keys 가 아님)
+    SUPABASE_JWKS_URL: str = ""
+    # jwt.decode(issuer=…) 에 사용. 비우면 {SUPABASE_URL}/auth/v1 (Supabase 기본 iss)
+    SUPABASE_JWT_ISSUER: str = ""
     SUPABASE_SERVICE_KEY: str = ""   # auth.admin 작업용 (탈퇴 계정 영구 삭제)
     GOOGLE_API_KEY: str
     WHISPER_MODEL_SIZE: str = "base"
@@ -31,6 +33,21 @@ class Settings(BaseSettings):
     BLACKBOARD_BASE_URL: str = ""    # 예: https://blackboard.example.com
     BLACKBOARD_API_KEY: str = ""
     BLACKBOARD_API_SECRET: str = ""
+
+    def supabase_jwks_uri(self) -> str:
+        """JWKS(JSON Web Key Set) 문서 URL. SUPABASE_JWKS_URL이 있으면 그대로 사용."""
+        custom = (self.SUPABASE_JWKS_URL or "").strip()
+        if custom:
+            return custom.rstrip("/")
+        base = self.SUPABASE_URL.rstrip("/")
+        return f"{base}/auth/v1/.well-known/jwks.json"
+
+    def supabase_jwt_issuer(self) -> str:
+        """액세스 토큰 iss 클레임과 맞춘다 (Supabase 기본: {origin}/auth/v1)."""
+        custom = (self.SUPABASE_JWT_ISSUER or "").strip()
+        if custom:
+            return custom.rstrip("/")
+        return f"{self.SUPABASE_URL.rstrip('/')}/auth/v1"
 
     model_config = {"env_file": ("../.env", ".env"), "extra": "ignore"}
 
