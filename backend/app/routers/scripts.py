@@ -207,18 +207,22 @@ def list_scripts(
     week_number: int | None = None,
     current_user: dict = Depends(get_current_user),
 ):
-    q = (
-        supabase.table("scripts")
-        .select("*")
-        .eq("course_id", course_id)
-        .order("uploaded_at", desc=True)
-    )
-    if week_number is not None:
-        q = q.eq("week_number", week_number)
+    try:
+        q = (
+            supabase.table("scripts")
+            .select("*")
+            .eq("course_id", course_id)
+            .order("uploaded_at", desc=True)
+        )
+        if week_number is not None:
+            q = q.eq("week_number", week_number)
 
-    result = q.execute()
-    scripts = [_format_script(r) for r in (result.data or [])]
-    return {"scripts": scripts, "totalCount": len(scripts)}
+        result = q.execute()
+        scripts = [_format_script(r) for r in (result.data or [])]
+        return {"scripts": scripts, "totalCount": len(scripts)}
+    except Exception as e:
+        print(f"❌ 스크립트 목록 조회 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail="스크립트 목록을 불러오는 중 서버 오류가 발생했습니다.")
 
 
 # ── 스크립트 상세 조회 ────────────────────────────────────────────────────────
