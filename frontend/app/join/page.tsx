@@ -114,7 +114,9 @@ function JoinContent() {
         )}
 
         <Button variant="outline" className="w-full" asChild>
-          <Link href="/dashboard">강의 목록</Link>
+          <Link href={user?.role === "INSTRUCTOR" ? "/" : "/dashboard"}>
+            {user?.role === "INSTRUCTOR" ? "대시보드" : "강의 목록"}
+          </Link>
         </Button>
       </CardContent>
     </Card>
