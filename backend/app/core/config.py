@@ -31,6 +31,24 @@ class Settings(BaseSettings):
     BLACKBOARD_API_KEY: str = ""
     BLACKBOARD_API_SECRET: str = ""
 
+    # 초대 링크에 사용할 프론트엔드 베이스 URL (예: https://app.example.com)
+    FRONTEND_BASE_URL: str = "http://localhost:3000"
+
+    def supabase_jwks_uri(self) -> str:
+        """JWKS(JSON Web Key Set) 문서 URL. SUPABASE_JWKS_URL이 있으면 그대로 사용."""
+        custom = (self.SUPABASE_JWKS_URL or "").strip()
+        if custom:
+            return custom.rstrip("/")
+        base = self.SUPABASE_URL.rstrip("/")
+        return f"{base}/auth/v1/.well-known/jwks.json"
+
+    def supabase_jwt_issuer(self) -> str:
+        """액세스 토큰 iss 클레임과 맞춘다 (Supabase 기본: {origin}/auth/v1)."""
+        custom = (self.SUPABASE_JWT_ISSUER or "").strip()
+        if custom:
+            return custom.rstrip("/")
+        return f"{self.SUPABASE_URL.rstrip('/')}/auth/v1"
+
     model_config = {"env_file": ("../.env", ".env"), "extra": "ignore"}
 
 
