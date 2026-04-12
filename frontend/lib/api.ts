@@ -151,10 +151,10 @@ export type Course = {
   courseName: string;
   semester: string;
   dayOfWeek: string[];
-  startTime: string;
-  endTime: string;
+  startTime: string | null;
+  endTime: string | null;
   maxStudents?: number;
-  description?: string;
+  description?: string | null;
   createdAt: string;
   updatedAt?: string;
 };
@@ -297,8 +297,8 @@ export async function createCourse(payload: {
   courseName: string;
   semester: string;
   dayOfWeek: string[];
-  startTime: string;
-  endTime: string;
+  startTime: string | null;
+  endTime: string | null;
   maxStudents?: number;
   description?: string;
 }): Promise<Course> {
@@ -468,7 +468,7 @@ export async function createCourseInvite(
 ): Promise<{ inviteToken: string; inviteLink: string; expiresAt: string }> {
   return request(`/api/courses/${courseId}/invites`, {
     method: "POST",
-    body: JSON.stringify(payload || {}),
+    body: JSON.stringify(payload),
   });
 }
 
@@ -478,7 +478,39 @@ export async function acceptCourseInvite(
 ): Promise<{ courseId: string; courseName: string; joinedAt: string }> {
   return request(`/api/courses/${courseId}/invites/${token}/accept`, {
     method: "POST",
+    body: JSON.stringify({ token }),
   });
+}
+
+export type LmsSyncRecord = {
+  syncId: string;
+  lmsType: string;
+  lmsCourseId: string;
+  syncedStudents: number;
+  syncedAt: string;
+};
+
+export async function getLmsSyncHistory(courseId: string) {
+  return request<{ syncs: LmsSyncRecord[]; totalCount: number }>(
+    `/api/courses/${courseId}/lms-syncs`
+  );
+}
+
+export async function syncLmsStudents(
+  courseId: string,
+  payload: { lmsType: string; lmsCourseId: string; syncStudents?: boolean }
+) {
+  return request<{ syncId: string | null; syncedStudents: number; lastSyncAt: string }>(
+    `/api/courses/${courseId}/lms-syncs`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        lmsType: payload.lmsType,
+        lmsCourseId: payload.lmsCourseId,
+        syncStudents: payload.syncStudents ?? true,
+      }),
+    }
+  );
 }
 
 export async function getNoticeSettings() {
@@ -827,7 +859,21 @@ export async function getQuizComprehension(
   return request(`/api/courses/${courseId}/quizzes/${quizId}/comprehension`);
 }
 
-// Script Types
+/** 목록/상세 공통: 백엔드 `scripts._format_script` 응답 */
+export type CourseScriptListItem = {
+  scriptId: string;
+  courseId: string;
+  scheduleId?: string | null;
+  title: string;
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+  weekNumber?: number | null;
+  uploadedAt: string;
+  downloadUrl?: string;
+};
+
+// Script Types (분석 상세 등 — 별도 엔드포인트)
 export type ScriptAnalysis = {
   scriptId: string;
   fileName: string;

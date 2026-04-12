@@ -1,6 +1,7 @@
 """LMS 연동 라우터.
 
 엔드포인트 구조:
+  3.3.1  GET  /api/courses/{courseId}/lms-syncs          — 동기화 이력 조회
   3.3.1  POST /api/courses/{courseId}/lms-syncs          — 수강생 동기화 (200 동기식)
   6.4.1-A POST /api/courses/{courseId}/preview-guides/{guideId}/distributions
   6.4.1-B POST /api/courses/{courseId}/review-summaries/{summaryId}/distributions
@@ -12,7 +13,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
-from ..core.auth import require_instructor
+from ..core.auth import get_current_user, require_instructor
 from ..core.lms_client import get_lms_client
 from ..database import supabase
 from ..dependencies import require_instructor_of
@@ -237,6 +238,30 @@ def sync_lms(
         "syncedStudents": synced_count,
         "lastSyncAt": now,
     }
+
+
+@lms_syncs_router.get("")
+def list_lms_syncs(course_id: str, _current_user: dict = Depends(get_current_user)):
+    """강의별 LMS 수강생 동기화 이력 (최신순)."""
+    result = (
+        supabase.table("lms_syncs")
+        .select("id, lms_type, lms_course_id, synced_students, synced_at")
+        .eq("course_id", course_id)
+        .order("synced_at", desc=True)
+        .limit(30)
+        .execute()
+    )
+    syncs = [
+        {
+            "syncId": r["id"],
+            "lmsType": r["lms_type"],
+            "lmsCourseId": r["lms_course_id"],
+            "syncedStudents": r["synced_students"],
+            "syncedAt": r["synced_at"],
+        }
+        for r in (result.data or [])
+    ]
+    return {"syncs": syncs, "totalCount": len(syncs)}
 
 
 # ──────────────────────────────────────────────────────────────────────────────

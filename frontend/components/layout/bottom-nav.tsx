@@ -8,9 +8,9 @@ import { useAuth } from "@/contexts/auth-context";
 
 const teacherNavItems = [
   {
-    href: "/",
+    href: "/dashboard",
     icon: LayoutDashboard,
-    label: "대시보드",
+    label: "강의",
   },
   {
     href: "/materials",
@@ -56,13 +56,15 @@ export function BottomNav() {
   const pathname = usePathname();
   const { user } = useAuth();
 
-  const navItems = user?.role === "teacher" ? teacherNavItems : studentNavItems;
+  const navItems = user?.role === "INSTRUCTOR" ? teacherNavItems : studentNavItems;
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border/40 bg-card/95 backdrop-blur-sm supports-[backdrop-filter]:bg-card/80">
       <div className="mx-auto flex h-16 max-w-lg items-center justify-around px-2 pb-safe">
         {navItems.map((item) => {
-          const isActive = pathname === item.href;
+          const isActive =
+            pathname === item.href ||
+            (item.href === "/dashboard" && pathname.startsWith("/courses"));
           return (
             <Link
               key={item.href}
