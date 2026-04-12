@@ -30,6 +30,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // Safely merge headers
   const mergedHeaders: Record<string, string> = {
     ...authHeaders,
+    ...(init?.headers as Record<string, string>),
   };
 
   if (init?.headers && typeof init.headers === "object") {
@@ -41,25 +42,36 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     });
   }
 
+  // [디버깅] 프론트엔드 내부적으로는 토큰이 제대로 담겼는지 개발자 도구 콘솔에 출력
+  if (!mergedHeaders.Authorization) {
+    console.error("❌ [API Error] 인증 토큰이 없습니다. 다시 로그인 해주세요.");
+    throw new Error("인증 토큰이 없습니다. 다시 로그인 해주세요.");
+  }
+
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers: mergedHeaders,
+    credentials: "include", // 쿠키 기반 인증 및 세션 유지를 위해 추가
   });
 
   if (!response.ok) {
-    let message = `API 요청 실패 (${response.status})`;
+    let backendMessage = `HTTP error! status: ${response.status}`;
     try {
-      const body = (await response.json()) as { detail?: string };
-      if (body?.detail) {
-        message = body.detail;
-      }
+      const errorData = await response.json();
+      backendMessage = errorData.detail || errorData.message || backendMessage;
     } catch {
       // ignore parse error
     }
-    throw new Error(message);
+
+    if (response.status === 401) {
+      console.error(
+        `❌ [API Error] 401 Unauthorized - 백엔드 응답: ${backendMessage}`,
+      );
+    }
+    throw new Error(backendMessage);
   }
 
-  return (await response.json()) as T;
+  return response.json() as Promise<T>;
 }
 
 export type LoginResponse = {
@@ -514,7 +526,16 @@ export async function getAudioConvertTask(taskId: string) {
 }
 
 export async function getAnalysisReport() {
-  return request<AnalysisReport>("/api/analysis/report");
+  // 과거 UI 프로토타입용 모의(Mock) API 함수입니다.
+  // 백엔드에 해당 엔드포인트가 없어 발생하는 404 에러를 방지하기 위해 더미 데이터를 반환합니다.
+  // TODO: 이후 teacher-materials.tsx 컴포넌트를 수정하여 실제 API인 getScriptAnalysis()를 사용해야 합니다.
+  return Promise.resolve<AnalysisReport>({
+    source_file: "대기 중인 파일",
+    logical_gaps: 0,
+    missing_terms: [],
+    missing_prerequisites: [],
+    suggestions: ["백엔드 실제 API 연동이 필요합니다."],
+  });
 }
 
 // User Profile APIs

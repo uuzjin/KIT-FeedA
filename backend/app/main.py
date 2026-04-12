@@ -45,12 +45,14 @@ app.add_exception_handler(RateLimitExceeded, lambda req, exc: __import__("fastap
     status_code=429,
     content={"detail": "요청 횟수 제한을 초과했습니다. 잠시 후 다시 시도하세요."},
 ))
-app.add_middleware(SlowAPIMiddleware)
+app.add_middleware(
+    SlowAPIMiddleware
+)
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=["*"],  # 모든 도메인 허용 (추후 프론트엔드 URL이 고정되면 여기에 추가)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
