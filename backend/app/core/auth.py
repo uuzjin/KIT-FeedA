@@ -1,8 +1,9 @@
 from functools import lru_cache
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
+from jose import jwt
 import httpx
+import logging
 
 from .config import settings
 
