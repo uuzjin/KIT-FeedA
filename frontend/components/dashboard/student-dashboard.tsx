@@ -25,15 +25,19 @@ import {
   QuizSubmissionHistory,
   StudentMaterialItem,
 } from "@/lib/api";
+import { useAuth } from "@/contexts/auth-context";
 
 export function StudentDashboard() {
   const router = useRouter();
+  const { user, isLoading: isAuthLoading } = useAuth();
   const [quizHistory, setQuizHistory] = useState<QuizSubmissionHistory[]>([]);
   const [materials, setMaterials] = useState<StudentMaterialItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (isAuthLoading || !user) return;
+
     const loadData = async () => {
       setIsLoading(true);
       setError(null);
@@ -45,7 +49,10 @@ export function StudentDashboard() {
         setQuizHistory(quizData.history || []);
         setMaterials(materialsData.materials || []);
       } catch (err) {
-        const message = err instanceof Error ? err.message : "대시보드 데이터를 불러오지 못했습니다.";
+        const message =
+          err instanceof Error
+            ? err.message
+            : "대시보드 데이터를 불러오지 못했습니다.";
         setError(message);
         setQuizHistory([]);
         setMaterials([]);
@@ -54,20 +61,24 @@ export function StudentDashboard() {
       }
     };
     void loadData();
-  }, []);
+  }, [isAuthLoading, user]);
 
   // 계산된 통계
   const stats = useMemo(() => {
     const totalParticipated = quizHistory.length;
-    const averageScore = totalParticipated > 0
-      ? Math.round(quizHistory.reduce((sum, h) => sum + h.score, 0) / totalParticipated)
-      : 0;
+    const averageScore =
+      totalParticipated > 0
+        ? Math.round(
+            quizHistory.reduce((sum, h) => sum + h.score, 0) /
+              totalParticipated,
+          )
+        : 0;
 
     return {
       totalParticipated,
       averageScore,
       materialsCount: materials.length,
-      coursesCount: new Set(quizHistory.map(h => h.courseId)).size,
+      coursesCount: new Set(quizHistory.map((h) => h.courseId)).size,
     };
   }, [quizHistory, materials]);
 
@@ -121,19 +132,24 @@ export function StudentDashboard() {
   }, [materials]);
 
   const courseProgress = useMemo(() => {
-    const courseMap = new Map<string, { courseId: string; quizzes: number; avgScore: number }>();
+    const courseMap = new Map<
+      string,
+      { courseId: string; quizzes: number; avgScore: number }
+    >();
 
     quizHistory.forEach((submission) => {
       if (!courseMap.has(submission.courseId)) {
-        courseMap.set(submission.courseId, { 
-          courseId: submission.courseId, 
-          quizzes: 0, 
-          avgScore: 0 
+        courseMap.set(submission.courseId, {
+          courseId: submission.courseId,
+          quizzes: 0,
+          avgScore: 0,
         });
       }
       const course = courseMap.get(submission.courseId)!;
       course.quizzes += 1;
-      course.avgScore = (course.avgScore * (course.quizzes - 1) + submission.score) / course.quizzes;
+      course.avgScore =
+        (course.avgScore * (course.quizzes - 1) + submission.score) /
+        course.quizzes;
     });
 
     return Array.from(courseMap.values()).map((course) => ({
@@ -144,7 +160,7 @@ export function StudentDashboard() {
     }));
   }, [quizHistory]);
 
-  if (isLoading) {
+  if (isAuthLoading || isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Loader2 className="size-8 animate-spin text-primary" />
@@ -156,7 +172,7 @@ export function StudentDashboard() {
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 p-4 pb-24">
       {/* 주요 액션 버튼 */}
       <div className="grid grid-cols-2 gap-3 sm:gap-4">
-        <Card 
+        <Card
           className="group cursor-pointer border-border/40 bg-linear-to-br from-blue-500/10 to-blue-600/5 shadow-sm transition-all hover:from-blue-500/20 hover:to-blue-600/10 hover:shadow-lg hover:border-blue-400/50"
           onClick={() => router.push("/quiz")}
         >
@@ -166,13 +182,17 @@ export function StudentDashboard() {
                 <Play className="size-6 text-blue-600 group-hover:text-blue-700" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-foreground group-hover:text-blue-600">퀴즈 시작</p>
-                <p className="text-xs text-muted-foreground mt-1">새로운 퀴즈에 도전하세요</p>
+                <p className="text-sm font-semibold text-foreground group-hover:text-blue-600">
+                  퀴즈 시작
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  새로운 퀴즈에 도전하세요
+                </p>
               </div>
             </div>
           </CardContent>
         </Card>
-        <Card 
+        <Card
           className="group cursor-pointer border-border/40 bg-linear-to-br from-emerald-500/10 to-emerald-600/5 shadow-sm transition-all hover:from-emerald-500/20 hover:to-emerald-600/10 hover:shadow-lg hover:border-emerald-400/50"
           onClick={() => router.push("/materials")}
         >
@@ -182,8 +202,12 @@ export function StudentDashboard() {
                 <BookOpen className="size-6 text-emerald-600 group-hover:text-emerald-700" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-foreground group-hover:text-emerald-600">학습 자료</p>
-                <p className="text-xs text-muted-foreground mt-1">강의 자료를 확인하세요</p>
+                <p className="text-sm font-semibold text-foreground group-hover:text-emerald-600">
+                  학습 자료
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  강의 자료를 확인하세요
+                </p>
               </div>
             </div>
           </CardContent>
@@ -192,18 +216,29 @@ export function StudentDashboard() {
 
       {/* 주간 통계 */}
       <section>
-        <h2 className="mb-3 text-sm font-semibold text-foreground">{"나의 학습 현황"}</h2>
+        <h2 className="mb-3 text-sm font-semibold text-foreground">
+          {"나의 학습 현황"}
+        </h2>
         <ScrollArea className="w-full">
           <div className="flex gap-3 pb-2">
             {weeklyStats.map((stat) => (
-              <Card key={stat.label} className="min-w-35 shrink-0 border-border/40">
+              <Card
+                key={stat.label}
+                className="min-w-35 shrink-0 border-border/40"
+              >
                 <CardContent className="flex items-center gap-3 p-4">
-                  <div className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${stat.bg}`}>
+                  <div
+                    className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${stat.bg}`}
+                  >
                     <stat.icon className={`size-5 ${stat.color}`} />
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">{stat.label}</p>
-                    <p className="text-lg font-bold text-foreground">{stat.value}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {stat.label}
+                    </p>
+                    <p className="text-lg font-bold text-foreground">
+                      {stat.value}
+                    </p>
                   </div>
                 </CardContent>
               </Card>
@@ -216,8 +251,14 @@ export function StudentDashboard() {
       {/* 최근 퀴즈 결과 */}
       <section>
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-foreground">{"최근 퀴즈 결과"}</h2>
-          <Button variant="ghost" size="sm" className="h-7 text-xs text-primary">
+          <h2 className="text-sm font-semibold text-foreground">
+            {"최근 퀴즈 결과"}
+          </h2>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs text-primary"
+          >
             {"모두 보기"}
           </Button>
         </div>
@@ -227,25 +268,44 @@ export function StudentDashboard() {
               <Card key={quiz.submissionId} className="border-border/40">
                 <CardContent className="flex items-center justify-between p-4">
                   <div className="flex items-center gap-3">
-                    <div className={`flex size-10 items-center justify-center rounded-xl ${
-                      quiz.score >= 80 ? "bg-emerald-500/10" : quiz.score >= 60 ? "bg-amber-500/10" : "bg-red-500/10"
-                    }`}>
-                      <HelpCircle className={`size-5 ${
-                        quiz.score >= 80 ? "text-emerald-500" : quiz.score >= 60 ? "text-amber-500" : "text-red-500"
-                      }`} />
+                    <div
+                      className={`flex size-10 items-center justify-center rounded-xl ${
+                        quiz.score >= 80
+                          ? "bg-emerald-500/10"
+                          : quiz.score >= 60
+                            ? "bg-amber-500/10"
+                            : "bg-red-500/10"
+                      }`}
+                    >
+                      <HelpCircle
+                        className={`size-5 ${
+                          quiz.score >= 80
+                            ? "text-emerald-500"
+                            : quiz.score >= 60
+                              ? "text-amber-500"
+                              : "text-red-500"
+                        }`}
+                      />
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-foreground">{quiz.courseId}</p>
+                      <p className="text-sm font-medium text-foreground">
+                        {quiz.courseId}
+                      </p>
                       <p className="text-xs text-muted-foreground">
                         {`${quiz.correctCount}/${quiz.totalCount} 정답`}
                       </p>
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-1">
-                    <Badge variant={
-                      quiz.score >= 80 ? "default" :
-                      quiz.score >= 60 ? "secondary" : "destructive"
-                    }>
+                    <Badge
+                      variant={
+                        quiz.score >= 80
+                          ? "default"
+                          : quiz.score >= 60
+                            ? "secondary"
+                            : "destructive"
+                      }
+                    >
                       {quiz.score}점
                     </Badge>
                     <p className="text-xs text-muted-foreground">
@@ -268,8 +328,14 @@ export function StudentDashboard() {
       {/* 최근 학습 자료 */}
       <section>
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-foreground">{"새로운 학습 자료"}</h2>
-          <Button variant="ghost" size="sm" className="h-7 text-xs text-primary">
+          <h2 className="text-sm font-semibold text-foreground">
+            {"새로운 학습 자료"}
+          </h2>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs text-primary"
+          >
             {"모두 보기"}
           </Button>
         </div>
@@ -277,18 +343,25 @@ export function StudentDashboard() {
           <div className="flex gap-3 pb-2">
             {studyMaterials.length > 0 ? (
               studyMaterials.map((material) => (
-                <Card key={material.id} className="min-w-50 shrink-0 border-border/40">
+                <Card
+                  key={material.id}
+                  className="min-w-50 shrink-0 border-border/40"
+                >
                   <CardContent className="p-4">
                     <div className="flex items-start justify-between">
-                      <Badge 
-                        variant={material.type === "PREVIEW" ? "default" : "secondary"} 
+                      <Badge
+                        variant={
+                          material.type === "PREVIEW" ? "default" : "secondary"
+                        }
                         className="text-xs"
                       >
                         {material.type === "PREVIEW" ? "예습" : "복습"}
                       </Badge>
                       <span className="flex size-2 rounded-full bg-primary" />
                     </div>
-                    <p className="mt-3 text-sm font-medium text-foreground">{material.title}</p>
+                    <p className="mt-3 text-sm font-medium text-foreground">
+                      {material.title}
+                    </p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {new Date(material.createdAt).toLocaleDateString("ko-KR")}
                     </p>
@@ -322,13 +395,22 @@ export function StudentDashboard() {
                 courseProgress.map((course) => (
                   <div key={course.courseId}>
                     <div className="mb-1 flex items-center justify-between">
-                      <span className="text-sm font-medium text-foreground">{course.courseId}</span>
+                      <span className="text-sm font-medium text-foreground">
+                        {course.courseId}
+                      </span>
                       <span className="text-xs text-muted-foreground">
-                        {"평균 "}{course.averageScore}{"% · 퀴즈 "}{course.quizzes}{"회"}
+                        {"평균 "}
+                        {course.averageScore}
+                        {"% · 퀴즈 "}
+                        {course.quizzes}
+                        {"회"}
                       </span>
                     </div>
                     <div className="flex items-center gap-3">
-                      <Progress value={course.progress} className="h-2 flex-1" />
+                      <Progress
+                        value={course.progress}
+                        className="h-2 flex-1"
+                      />
                       <span className="w-10 text-right text-xs font-medium text-primary">
                         {Math.min(100, course.progress)}%
                       </span>

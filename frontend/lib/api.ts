@@ -1,6 +1,8 @@
 import { supabase } from "@/lib/supabase/client";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL ??
+  "https://backend-production-9c858.up.railway.app";
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
   const headers: Record<string, string> = {
@@ -24,10 +26,11 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const authHeaders = await getAuthHeaders();
-  
+
   // Safely merge headers
   const mergedHeaders: Record<string, string> = {
     ...authHeaders,
+    ...(init?.headers as Record<string, string>),
   };
 
   if (init?.headers && typeof init.headers === "object") {
@@ -39,25 +42,36 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     });
   }
 
+  // [디버깅] 프론트엔드 내부적으로는 토큰이 제대로 담겼는지 개발자 도구 콘솔에 출력
+  if (!mergedHeaders.Authorization) {
+    console.error("❌ [API Error] 인증 토큰이 없습니다. 다시 로그인 해주세요.");
+    throw new Error("인증 토큰이 없습니다. 다시 로그인 해주세요.");
+  }
+
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers: mergedHeaders,
+    credentials: "include", // 쿠키 기반 인증 및 세션 유지를 위해 추가
   });
 
   if (!response.ok) {
-    let message = `API 요청 실패 (${response.status})`;
+    let backendMessage = `HTTP error! status: ${response.status}`;
     try {
-      const body = (await response.json()) as { detail?: string };
-      if (body?.detail) {
-        message = body.detail;
-      }
+      const errorData = await response.json();
+      backendMessage = errorData.detail || errorData.message || backendMessage;
     } catch {
       // ignore parse error
     }
-    throw new Error(message);
+
+    if (response.status === 401) {
+      console.error(
+        `❌ [API Error] 401 Unauthorized - 백엔드 응답: ${backendMessage}`,
+      );
+    }
+    throw new Error(backendMessage);
   }
 
-  return (await response.json()) as T;
+  return response.json() as Promise<T>;
 }
 
 export type LoginResponse = {
@@ -223,36 +237,40 @@ export async function getNotices(courseId?: string) {
   if (!courseId) {
     // 사용자의 모든 강의 조회 후 공지 병합
     try {
-      const coursesResponse = await request<{ courses: Course[] }>("/api/courses");
+      const coursesResponse = await request<{ courses: Course[] }>(
+        "/api/courses",
+      );
       const allAnnouncements: Announcement[] = [];
-      
+
       for (const course of coursesResponse.courses) {
         try {
-          const announcements = await request<{ announcements: Announcement[]; totalCount: number }>(
-            `/api/courses/${course.courseId}/announcements`
-          );
+          const announcements = await request<{
+            announcements: Announcement[];
+            totalCount: number;
+          }>(`/api/courses/${course.courseId}/announcements`);
           allAnnouncements.push(...announcements.announcements);
         } catch {
           // 특정 강의 공지 조회 실패 시 무시
         }
       }
-      
+
       return allAnnouncements;
     } catch {
       // 강의 조회 실패 시 빈 배열 반환
       return [];
     }
   }
-  
-  const result = await request<{ announcements: Announcement[]; totalCount: number }>(
-    `/api/courses/${courseId}/announcements`
-  );
+
+  const result = await request<{
+    announcements: Announcement[];
+    totalCount: number;
+  }>(`/api/courses/${courseId}/announcements`);
   return result.announcements;
 }
 
 export async function getCourseAnnouncements(courseId: string) {
   return request<{ announcements: Announcement[]; totalCount: number }>(
-    `/api/courses/${courseId}/announcements`
+    `/api/courses/${courseId}/announcements`,
   );
 }
 
@@ -262,14 +280,17 @@ export async function getCourses(semester?: string) {
     params.append("semester", semester);
   }
   return request<{ courses: Course[]; totalCount: number }>(
-    `/api/courses${params.toString() ? `?${params}` : ""}`
+    `/api/courses${params.toString() ? `?${params}` : ""}`,
   );
 }
 
-export async function getCourseDetail(courseId: string): Promise<Course & { instructor: { userId: string; name: string; email: string }; currentStudents: number }> {
-  return request(
-    `/api/courses/${courseId}`
-  );
+export async function getCourseDetail(courseId: string): Promise<
+  Course & {
+    instructor: { userId: string; name: string; email: string };
+    currentStudents: number;
+  }
+> {
+  return request(`/api/courses/${courseId}`);
 }
 
 export async function createCourse(payload: {
@@ -296,7 +317,7 @@ export async function updateCourse(
     endTime?: string;
     maxStudents?: number;
     description?: string;
-  }
+  },
 ): Promise<Course> {
   return request(`/api/courses/${courseId}`, {
     method: "PUT",
@@ -304,7 +325,9 @@ export async function updateCourse(
   });
 }
 
-export async function deleteCourse(courseId: string): Promise<{ message: string }> {
+export async function deleteCourse(
+  courseId: string,
+): Promise<{ message: string }> {
   return request(`/api/courses/${courseId}`, {
     method: "DELETE",
   });
@@ -329,7 +352,7 @@ export async function createCourseSchedule(
     topic: string;
     date: string;
     description?: string;
-  }
+  },
 ): Promise<{ scheduleId: string }> {
   return request(`/api/courses/${courseId}/schedules`, {
     method: "POST",
@@ -344,7 +367,7 @@ export async function updateCourseSchedule(
     topic?: string;
     date?: string;
     description?: string;
-  }
+  },
 ): Promise<{ scheduleId: string }> {
   return request(`/api/courses/${courseId}/schedules/${scheduleId}`, {
     method: "PUT",
@@ -354,27 +377,41 @@ export async function updateCourseSchedule(
 
 export async function deleteCourseSchedule(
   courseId: string,
-  scheduleId: string
+  scheduleId: string,
 ): Promise<{ message: string }> {
   return request(`/api/courses/${courseId}/schedules/${scheduleId}`, {
     method: "DELETE",
   });
 }
 
-export async function getCourseStudents(courseId: string, page?: number, size?: number): Promise<{
-  students: Array<{ userId: string; name: string; email: string; joinedAt: string }>;
+export async function getCourseStudents(
+  courseId: string,
+  page?: number,
+  size?: number,
+): Promise<{
+  students: Array<{
+    userId: string;
+    name: string;
+    email: string;
+    joinedAt: string;
+  }>;
   totalCount: number;
 }> {
   const params = new URLSearchParams();
   if (page) params.append("page", page.toString());
   if (size) params.append("size", size.toString());
-  return request(`/api/courses/${courseId}/students${params.toString() ? `?${params}` : ""}`);
+  return request(
+    `/api/courses/${courseId}/students${params.toString() ? `?${params}` : ""}`,
+  );
 }
 
 export async function addCourseStudents(
   courseId: string,
-  payload: { file?: File; studentIds?: string[] }
-): Promise<{ addedCount: number; errors: Array<{ row: number; reason: string }> }> {
+  payload: { file?: File; studentIds?: string[] },
+): Promise<{
+  addedCount: number;
+  errors: Array<{ row: number; reason: string }>;
+}> {
   const formData = new FormData();
   if (payload.file) {
     formData.append("file", payload.file);
@@ -384,13 +421,18 @@ export async function addCourseStudents(
   }
 
   const authHeaders = await getAuthHeaders();
-  const response = await fetch(`${API_BASE_URL}/api/courses/${courseId}/students`, {
-    method: "POST",
-    headers: {
-      ...(authHeaders.Authorization ? { Authorization: authHeaders.Authorization } : {}),
+  const response = await fetch(
+    `${API_BASE_URL}/api/courses/${courseId}/students`,
+    {
+      method: "POST",
+      headers: {
+        ...(authHeaders.Authorization
+          ? { Authorization: authHeaders.Authorization }
+          : {}),
+      },
+      body: formData,
     },
-    body: formData,
-  });
+  );
 
   if (!response.ok) {
     let message = `학생 추가 실패 (${response.status})`;
@@ -413,7 +455,7 @@ export async function addCourseStudents(
 
 export async function removeCourseStudent(
   courseId: string,
-  studentId: string
+  studentId: string,
 ): Promise<{ message: string }> {
   return request(`/api/courses/${courseId}/students/${studentId}`, {
     method: "DELETE",
@@ -422,7 +464,7 @@ export async function removeCourseStudent(
 
 export async function createCourseInvite(
   courseId: string,
-  payload?: { expiresAt?: string }
+  payload?: { expiresAt?: string },
 ): Promise<{ inviteToken: string; inviteLink: string; expiresAt: string }> {
   return request(`/api/courses/${courseId}/invites`, {
     method: "POST",
@@ -432,7 +474,7 @@ export async function createCourseInvite(
 
 export async function acceptCourseInvite(
   courseId: string,
-  token: string
+  token: string,
 ): Promise<{ courseId: string; courseName: string; joinedAt: string }> {
   return request(`/api/courses/${courseId}/invites/${token}/accept`, {
     method: "POST",
@@ -444,10 +486,13 @@ export async function getNoticeSettings() {
 }
 
 export async function updateNoticeSettings(payload: NoticeSettings) {
-  return request<{ message: string; settings: NoticeSettings }>("/api/notices/settings", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  return request<{ message: string; settings: NoticeSettings }>(
+    "/api/notices/settings",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
 }
 
 export async function getLatestQuiz() {
@@ -455,13 +500,19 @@ export async function getLatestQuiz() {
 }
 
 export async function generateQuiz(payload: QuizGeneratePayload) {
-  return request<{ message: string; quiz: QuizLatest; difficulty: string }>("/api/quiz/generate", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  return request<{ message: string; quiz: QuizLatest; difficulty: string }>(
+    "/api/quiz/generate",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
 }
 
-export async function createAudioConvertTask(payload: { file_name: string; estimated_minutes?: number }) {
+export async function createAudioConvertTask(payload: {
+  file_name: string;
+  estimated_minutes?: number;
+}) {
   return request<AudioConvertTask>("/api/materials/audio-convert", {
     method: "POST",
     body: JSON.stringify(payload),
@@ -473,7 +524,16 @@ export async function getAudioConvertTask(taskId: string) {
 }
 
 export async function getAnalysisReport() {
-  return request<AnalysisReport>("/api/analysis/report");
+  // 과거 UI 프로토타입용 모의(Mock) API 함수입니다.
+  // 백엔드에 해당 엔드포인트가 없어 발생하는 404 에러를 방지하기 위해 더미 데이터를 반환합니다.
+  // TODO: 이후 teacher-materials.tsx 컴포넌트를 수정하여 실제 API인 getScriptAnalysis()를 사용해야 합니다.
+  return Promise.resolve<AnalysisReport>({
+    source_file: "대기 중인 파일",
+    logical_gaps: 0,
+    missing_terms: [],
+    missing_prerequisites: [],
+    suggestions: ["백엔드 실제 API 연동이 필요합니다."],
+  });
 }
 
 // User Profile APIs
@@ -483,10 +543,10 @@ export async function getUserProfile(userId: string): Promise<UserProfile> {
 
 export async function updateUserProfile(
   userId: string,
-  payload: UpdateProfilePayload
+  payload: UpdateProfilePayload,
 ): Promise<UserProfile> {
   const formData = new FormData();
-  
+
   if (payload.name) {
     formData.append("name", payload.name);
   }
@@ -498,16 +558,15 @@ export async function updateUserProfile(
   }
 
   const authHeaders = await getAuthHeaders();
-  const response = await fetch(
-    `${API_BASE_URL}/api/users/${userId}/profile`,
-    {
-      method: "PUT",
-      headers: {
-        ...(authHeaders.Authorization ? { Authorization: authHeaders.Authorization } : {}),
-      },
-      body: formData,
-    }
-  );
+  const response = await fetch(`${API_BASE_URL}/api/users/${userId}/profile`, {
+    method: "PUT",
+    headers: {
+      ...(authHeaders.Authorization
+        ? { Authorization: authHeaders.Authorization }
+        : {}),
+    },
+    body: formData,
+  });
 
   if (!response.ok) {
     let message = `프로필 수정 실패 (${response.status})`;
@@ -525,7 +584,9 @@ export async function updateUserProfile(
   return (await response.json()) as UserProfile;
 }
 
-export async function deleteUserAccount(userId: string): Promise<{ message: string }> {
+export async function deleteUserAccount(
+  userId: string,
+): Promise<{ message: string }> {
   return request<{ message: string }>(`/api/users/${userId}`, {
     method: "DELETE",
   });
@@ -543,7 +604,9 @@ export async function getStudentQuizHistory(courseId?: string): Promise<{
   return request<{
     history: QuizSubmissionHistory[];
     totalCount: number;
-  }>(`/api/dashboard/students/quiz-history${params.toString() ? `?${params}` : ""}`);
+  }>(
+    `/api/dashboard/students/quiz-history${params.toString() ? `?${params}` : ""}`,
+  );
 }
 
 export async function getStudentMaterials(courseId?: string): Promise<{
@@ -557,11 +620,15 @@ export async function getStudentMaterials(courseId?: string): Promise<{
   return request<{
     materials: StudentMaterialItem[];
     totalCount: number;
-  }>(`/api/dashboard/students/materials${params.toString() ? `?${params}` : ""}`);
+  }>(
+    `/api/dashboard/students/materials${params.toString() ? `?${params}` : ""}`,
+  );
 }
 
 // Dashboard APIs for Instructors
-export async function getInstructorComprehensionTrends(courseId?: string): Promise<{
+export async function getInstructorComprehensionTrends(
+  courseId?: string,
+): Promise<{
   trends: ComprehensionTrendItem[];
   overallTrend: "IMPROVING" | "DECLINING" | "STABLE";
 }> {
@@ -572,7 +639,9 @@ export async function getInstructorComprehensionTrends(courseId?: string): Promi
   return request<{
     trends: ComprehensionTrendItem[];
     overallTrend: "IMPROVING" | "DECLINING" | "STABLE";
-  }>(`/api/dashboard/instructors/comprehension-trends${params.toString() ? `?${params}` : ""}`);
+  }>(
+    `/api/dashboard/instructors/comprehension-trends${params.toString() ? `?${params}` : ""}`,
+  );
 }
 
 export async function getInstructorWeakTopics(courseId?: string): Promise<{
@@ -584,7 +653,9 @@ export async function getInstructorWeakTopics(courseId?: string): Promise<{
   }
   return request<{
     weakTopics: WeakTopicItem[];
-  }>(`/api/dashboard/instructors/weak-topics${params.toString() ? `?${params}` : ""}`);
+  }>(
+    `/api/dashboard/instructors/weak-topics${params.toString() ? `?${params}` : ""}`,
+  );
 }
 
 export async function getInstructorUploadStatus(courseId?: string): Promise<{
@@ -598,7 +669,9 @@ export async function getInstructorUploadStatus(courseId?: string): Promise<{
   return request<{
     uploadStatus: UploadStatusItem[];
     completionRate: number;
-  }>(`/api/dashboard/instructors/upload-status${params.toString() ? `?${params}` : ""}`);
+  }>(
+    `/api/dashboard/instructors/upload-status${params.toString() ? `?${params}` : ""}`,
+  );
 }
 
 // Quiz Types
@@ -655,7 +728,7 @@ export async function createQuiz(
     questionCount?: number;
     questionTypes?: string[];
     difficultyLevel?: string;
-  }
+  },
 ): Promise<{ quizId: string; status: string; message: string }> {
   return request(`/api/courses/${courseId}/quizzes`, {
     method: "POST",
@@ -665,20 +738,20 @@ export async function createQuiz(
 
 export async function getCourseQuizzes(
   courseId: string,
-  status?: string
+  status?: string,
 ): Promise<{ quizzes: Quiz[]; totalCount: number }> {
   const params = new URLSearchParams();
   if (status) {
     params.append("status", status);
   }
   return request(
-    `/api/courses/${courseId}/quizzes${params.toString() ? `?${params}` : ""}`
+    `/api/courses/${courseId}/quizzes${params.toString() ? `?${params}` : ""}`,
   );
 }
 
 export async function getQuizDetail(
   courseId: string,
-  quizId: string
+  quizId: string,
 ): Promise<Quiz> {
   return request(`/api/courses/${courseId}/quizzes/${quizId}`);
 }
@@ -686,7 +759,7 @@ export async function getQuizDetail(
 export async function updateQuizQuestions(
   courseId: string,
   quizId: string,
-  payload: Question[]
+  payload: Question[],
 ): Promise<{ quizId: string; updatedAt: string }> {
   return request(`/api/courses/${courseId}/quizzes/${quizId}`, {
     method: "PUT",
@@ -701,7 +774,7 @@ export async function updateQuizSettings(
     difficultyLevel?: string;
     anonymousEnabled?: boolean;
     expiresAt?: string;
-  }
+  },
 ): Promise<Quiz> {
   return request(`/api/courses/${courseId}/quizzes/${quizId}`, {
     method: "PATCH",
@@ -711,7 +784,7 @@ export async function updateQuizSettings(
 
 export async function deleteQuiz(
   courseId: string,
-  quizId: string
+  quizId: string,
 ): Promise<{ message: string }> {
   return request(`/api/courses/${courseId}/quizzes/${quizId}`, {
     method: "DELETE",
@@ -720,7 +793,7 @@ export async function deleteQuiz(
 
 export async function publishQuiz(
   courseId: string,
-  quizId: string
+  quizId: string,
 ): Promise<{ quizId: string; status: string }> {
   return request(`/api/courses/${courseId}/quizzes/${quizId}/publish`, {
     method: "PUT",
@@ -729,7 +802,7 @@ export async function publishQuiz(
 
 export async function closeQuiz(
   courseId: string,
-  quizId: string
+  quizId: string,
 ): Promise<{ quizId: string; status: string }> {
   return request(`/api/courses/${courseId}/quizzes/${quizId}/close`, {
     method: "PUT",
@@ -739,7 +812,7 @@ export async function closeQuiz(
 export async function submitQuiz(
   courseId: string,
   quizId: string,
-  payload: { answers: Array<{ questionId: string; selectedOption: string }> }
+  payload: { answers: Array<{ questionId: string; selectedOption: string }> },
 ): Promise<QuizSubmission> {
   return request(`/api/courses/${courseId}/quizzes/${quizId}/submissions`, {
     method: "POST",
@@ -749,11 +822,9 @@ export async function submitQuiz(
 
 export async function getQuizComprehension(
   courseId: string,
-  quizId: string
+  quizId: string,
 ): Promise<ComprehensionReport> {
-  return request(
-    `/api/courses/${courseId}/quizzes/${quizId}/comprehension`
-  );
+  return request(`/api/courses/${courseId}/quizzes/${quizId}/comprehension`);
 }
 
 // Script Types
@@ -779,7 +850,7 @@ export async function uploadScript(
     file: File;
     weekNumber?: number;
     topic?: string;
-  }
+  },
 ): Promise<{ scriptId: string; status: string; message: string }> {
   const formData = new FormData();
   formData.append("file", payload.file);
@@ -801,7 +872,7 @@ export async function uploadScript(
           : {}),
       },
       body: formData,
-    }
+    },
   );
 
   if (!response.ok) {
@@ -825,14 +896,14 @@ export async function uploadScript(
 }
 
 export async function getCourseScripts(
-  courseId: string
+  courseId: string,
 ): Promise<{ scripts: ScriptAnalysis[] }> {
   return request(`/api/courses/${courseId}/scripts`);
 }
 
 export async function getScriptAnalysis(
   courseId: string,
-  scriptId: string
+  scriptId: string,
 ): Promise<ScriptAnalysis> {
   return request(`/api/courses/${courseId}/scripts/${scriptId}`);
 }
@@ -853,14 +924,14 @@ export type Material = {
 // Materials APIs
 export async function getCourseMaterials(
   courseId: string,
-  type?: string
+  type?: string,
 ): Promise<{ materials: Material[]; totalCount: number }> {
   const params = new URLSearchParams();
   if (type) {
     params.append("type", type);
   }
   return request(
-    `/api/courses/${courseId}/materials${params.toString() ? `?${params}` : ""}`
+    `/api/courses/${courseId}/materials${params.toString() ? `?${params}` : ""}`,
   );
 }
 
@@ -870,7 +941,7 @@ export async function createPreviewGuide(
     scheduleId: string;
     title: string;
     content?: string;
-  }
+  },
 ): Promise<Material> {
   return request(`/api/courses/${courseId}/materials/preview`, {
     method: "POST",
@@ -884,7 +955,7 @@ export async function createReviewSummary(
     scheduleId: string;
     title: string;
     content?: string;
-  }
+  },
 ): Promise<Material> {
   return request(`/api/courses/${courseId}/materials/review`, {
     method: "POST",
@@ -898,7 +969,7 @@ export async function uploadMaterial(
     file: File;
     type: string;
     scheduleId?: string;
-  }
+  },
 ): Promise<Material> {
   const formData = new FormData();
   formData.append("file", payload.file);
@@ -918,7 +989,7 @@ export async function uploadMaterial(
           : {}),
       },
       body: formData,
-    }
+    },
   );
 
   if (!response.ok) {
@@ -939,7 +1010,7 @@ export async function uploadMaterial(
 
 export async function deleteMaterial(
   courseId: string,
-  materialId: string
+  materialId: string,
 ): Promise<{ message: string }> {
   return request(`/api/courses/${courseId}/materials/${materialId}`, {
     method: "DELETE",
@@ -970,48 +1041,40 @@ export type NotificationPreferences = {
 // Notifications APIs
 export async function getNotifications(
   userId: string,
-  unreadOnly?: boolean
+  unreadOnly?: boolean,
 ): Promise<{ notifications: Notification[]; totalCount: number }> {
   const params = new URLSearchParams();
   if (unreadOnly) {
     params.append("unreadOnly", "true");
   }
   return request(
-    `/api/users/${userId}/notifications${params.toString() ? `?${params}` : ""}`
+    `/api/users/${userId}/notifications${params.toString() ? `?${params}` : ""}`,
   );
 }
 
 export async function markNotificationAsRead(
   userId: string,
-  notificationId: string
+  notificationId: string,
 ): Promise<{ message: string }> {
-  return request(
-    `/api/users/${userId}/notifications/${notificationId}/read`,
-    {
-      method: "POST",
-    }
-  );
+  return request(`/api/users/${userId}/notifications/${notificationId}/read`, {
+    method: "POST",
+  });
 }
 
 export async function getNotificationPreferences(
-  userId: string
+  userId: string,
 ): Promise<NotificationPreferences> {
-  return request(
-    `/api/users/${userId}/notification-preferences`
-  );
+  return request(`/api/users/${userId}/notification-preferences`);
 }
 
 export async function updateNotificationPreferences(
   userId: string,
-  payload: Partial<NotificationPreferences>
+  payload: Partial<NotificationPreferences>,
 ): Promise<NotificationPreferences> {
-  return request(
-    `/api/users/${userId}/notification-preferences`,
-    {
-      method: "PUT",
-      body: JSON.stringify(payload),
-    }
-  );
+  return request(`/api/users/${userId}/notification-preferences`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
 }
 
 // Reminders Types
@@ -1037,20 +1100,17 @@ export async function getReminders(userId: string): Promise<{
 
 export async function dismissReminder(
   userId: string,
-  reminderId: string
+  reminderId: string,
 ): Promise<{ message: string }> {
-  return request(
-    `/api/users/${userId}/reminders/${reminderId}/dismiss`,
-    {
-      method: "POST",
-    }
-  );
+  return request(`/api/users/${userId}/reminders/${reminderId}/dismiss`, {
+    method: "POST",
+  });
 }
 
 // Course Additional APIs for Instructors
 export async function assignCoursesToInstructor(
   userId: string,
-  courseIds: string[]
+  courseIds: string[],
 ): Promise<{
   assignedCourses: Array<{
     courseId: string;
@@ -1067,7 +1127,7 @@ export async function assignCoursesToInstructor(
 
 export async function getInstructorCourses(
   userId: string,
-  semester?: string
+  semester?: string,
 ): Promise<{
   courses: Course[];
   totalCount: number;
@@ -1077,13 +1137,13 @@ export async function getInstructorCourses(
     params.append("semester", semester);
   }
   return request(
-    `/api/users/${userId}/courses${params.toString() ? `?${params}` : ""}`
+    `/api/users/${userId}/courses${params.toString() ? `?${params}` : ""}`,
   );
 }
 
 export async function updateUserRole(
   userId: string,
-  role: "INSTRUCTOR" | "STUDENT" | "ADMIN"
+  role: "INSTRUCTOR" | "STUDENT" | "ADMIN",
 ): Promise<{ userId: string; role: string; updatedAt: string }> {
   return request(`/api/users/${userId}/role`, {
     method: "PUT",
@@ -1112,7 +1172,7 @@ export async function createAnnouncement(
     title: string;
     content: string;
     templateType?: string;
-  }
+  },
 ): Promise<AnnouncementDetail> {
   return request(`/api/courses/${courseId}/announcements`, {
     method: "POST",
@@ -1122,12 +1182,12 @@ export async function createAnnouncement(
 
 export async function publishAnnouncement(
   courseId: string,
-  announcementId: string
+  announcementId: string,
 ): Promise<{ announcementId: string; status: string; publishedAt: string }> {
   return request(
     `/api/courses/${courseId}/announcements/${announcementId}/publish`,
     {
       method: "POST",
-    }
+    },
   );
 }
