@@ -57,8 +57,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     let backendMessage = `HTTP error! status: ${response.status}`;
     try {
-      const errorData = await response.json();
-      backendMessage = errorData.detail || errorData.message || backendMessage;
+      const errText = await response.text();
+      if (errText.trim()) {
+        const errorData = JSON.parse(errText) as {
+          detail?: string;
+          message?: string;
+        };
+        backendMessage =
+          (typeof errorData.detail === "string" ? errorData.detail : undefined) ||
+          (typeof errorData.message === "string" ? errorData.message : undefined) ||
+          backendMessage;
+      }
     } catch {
       // ignore parse error
     }
@@ -71,7 +80,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(backendMessage);
   }
 
-  return response.json() as Promise<T>;
+  const text = await response.text();
+  if (!text.trim()) {
+    return undefined as T;
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error("서버 응답을 해석할 수 없습니다.");
+  }
 }
 
 export type LoginResponse = {
@@ -328,9 +345,10 @@ export async function updateCourse(
 export async function deleteCourse(
   courseId: string,
 ): Promise<{ message: string }> {
-  return request(`/api/courses/${courseId}`, {
+  await request<void>(`/api/courses/${courseId}`, {
     method: "DELETE",
   });
+  return { message: "삭제되었습니다." };
 }
 
 export async function getCourseSchedules(courseId: string): Promise<{
@@ -402,9 +420,27 @@ export async function getCourseStudents(
   const params = new URLSearchParams();
   if (page) params.append("page", page.toString());
   if (size) params.append("size", size.toString());
-  return request(
-    `/api/courses/${courseId}/students${params.toString() ? `?${params}` : ""}`,
+  const res = await request<{
+    students: Array<{
+      studentId: string;
+      name: string | null;
+      email: string | null;
+      joinMethod: string;
+      joinedAt: string;
+    }>;
+    totalCount: number;
+  }>(
+    `/api/courses/${courseId}/enrollments${params.toString() ? `?${params}` : ""}`,
   );
+  return {
+    students: (res.students ?? []).map((s) => ({
+      userId: s.studentId,
+      name: s.name ?? "",
+      email: s.email ?? "",
+      joinedAt: s.joinedAt,
+    })),
+    totalCount: res.totalCount ?? 0,
+  };
 }
 
 export async function addCourseStudents(
@@ -414,44 +450,24 @@ export async function addCourseStudents(
   addedCount: number;
   errors: Array<{ row: number; reason: string }>;
 }> {
-  const formData = new FormData();
-  if (payload.file) {
-    formData.append("file", payload.file);
+  if (payload.file && !(payload.studentIds && payload.studentIds.length > 0)) {
+    throw new Error(
+      "엑셀 파일 일괄 등록은 서버에 연결되어 있지 않습니다. 초대 링크를 사용하거나 학생 ID 목록으로 등록해 주세요.",
+    );
   }
-  if (payload.studentIds) {
-    formData.append("studentIds", JSON.stringify(payload.studentIds));
+  if (!payload.studentIds?.length) {
+    throw new Error("추가할 학생 ID가 없습니다.");
   }
-
-  const authHeaders = await getAuthHeaders();
-  const response = await fetch(
-    `${API_BASE_URL}/api/courses/${courseId}/students`,
+  const res = await request<{ message?: string; enrolledCount: number }>(
+    `/api/courses/${courseId}/enrollments`,
     {
       method: "POST",
-      headers: {
-        ...(authHeaders.Authorization
-          ? { Authorization: authHeaders.Authorization }
-          : {}),
-      },
-      body: formData,
+      body: JSON.stringify({ studentIds: payload.studentIds }),
     },
   );
-
-  if (!response.ok) {
-    let message = `학생 추가 실패 (${response.status})`;
-    try {
-      const body = (await response.json()) as { detail?: string };
-      if (body?.detail) {
-        message = body.detail;
-      }
-    } catch {
-      // ignore parse error
-    }
-    throw new Error(message);
-  }
-
-  return (await response.json()) as {
-    addedCount: number;
-    errors: Array<{ row: number; reason: string }>;
+  return {
+    addedCount: res.enrolledCount ?? 0,
+    errors: [],
   };
 }
 
@@ -459,18 +475,27 @@ export async function removeCourseStudent(
   courseId: string,
   studentId: string,
 ): Promise<{ message: string }> {
-  return request(`/api/courses/${courseId}/students/${studentId}`, {
+  await request<void>(`/api/courses/${courseId}/enrollments/${studentId}`, {
     method: "DELETE",
   });
+  return { message: "삭제되었습니다." };
 }
+
+export type CourseInviteResponse = {
+  courseId: string;
+  inviteToken: string;
+  inviteLink: string;
+  expiresAt: string;
+  createdAt: string;
+};
 
 export async function createCourseInvite(
   courseId: string,
   payload?: { expiresAt?: string },
-): Promise<{ inviteToken: string; inviteLink: string; expiresAt: string }> {
-  return request(`/api/courses/${courseId}/invites`, {
+): Promise<CourseInviteResponse> {
+  return request<CourseInviteResponse>(`/api/courses/${courseId}/invites`, {
     method: "POST",
-    body: JSON.stringify(payload),
+    body: JSON.stringify(payload ?? {}),
   });
 }
 
@@ -478,9 +503,9 @@ export async function acceptCourseInvite(
   courseId: string,
   token: string,
 ): Promise<{ courseId: string; courseName: string; joinedAt: string }> {
-  return request(`/api/courses/${courseId}/invites/${token}/accept`, {
+  const enc = encodeURIComponent(token);
+  return request(`/api/courses/${courseId}/invites/${enc}/accept`, {
     method: "POST",
-    body: JSON.stringify({ token }),
   });
 }
 
@@ -559,15 +584,12 @@ export async function getAudioConvertTask(taskId: string) {
 }
 
 export async function getAnalysisReport() {
-  // 과거 UI 프로토타입용 모의(Mock) API 함수입니다.
-  // 백엔드에 해당 엔드포인트가 없어 발생하는 404 에러를 방지하기 위해 더미 데이터를 반환합니다.
-  // TODO: 이후 teacher-materials.tsx 컴포넌트를 수정하여 실제 API인 getScriptAnalysis()를 사용해야 합니다.
   return Promise.resolve<AnalysisReport>({
     source_file: "대기 중인 파일",
     logical_gaps: 0,
     missing_terms: [],
     missing_prerequisites: [],
-    suggestions: ["백엔드 실제 API 연동이 필요합니다."],
+    suggestions: ["분석 API는 getScriptAnalysis()로 연결해야 합니다."],
   });
 }
 
@@ -1243,8 +1265,13 @@ export async function publishAnnouncement(
 
 export async function joinCourseByInviteToken(
   token: string,
-): Promise<{ courseId: string; message: string }> {
-  return request(`/api/invites/${token}/accept`, {
+): Promise<{
+  courseId: string;
+  message: string;
+  courseName?: string;
+  joinedAt?: string;
+}> {
+  return request(`/api/courses/join`, {
     method: "POST",
     body: JSON.stringify({ token }),
   });
