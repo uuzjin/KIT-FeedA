@@ -36,7 +36,7 @@ export default function Home() {
 
   return (
     <AppShell>
-      {user.role === "teacher" ? <TeacherDashboard /> : <StudentDashboard />}
+      {user.role === "INSTRUCTOR" ? <TeacherDashboard /> : <StudentDashboard />}
     </AppShell>
   );
 }

@@ -32,6 +32,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
+import { EditProfileModal } from "@/components/profile/edit-profile-modal";
+import { DeleteAccountDialog } from "@/components/profile/delete-account-dialog";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
@@ -110,24 +112,30 @@ const studentCourses = [
 
 export function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [notifications, setNotifications] = useState({
     quiz: true,
     material: true,
     deadline: true,
   });
-  const { user, logout } = useAuth();
+  const { user, signOut } = useAuth();
   const router = useRouter();
 
-  const handleLogout = () => {
-    logout();
-    router.push("/login");
+  const handleLogout = async () => {
+    try {
+      await signOut();
+      router.push("/login");
+    } catch (error) {
+      console.error("Logout failed:", error);
+    }
   };
 
-  const courses = user?.role === "teacher" ? teacherCourses : studentCourses;
-  const isTeacher = user?.role === "teacher";
+  const courses = user?.role === "INSTRUCTOR" ? teacherCourses : studentCourses;
+  const isTeacher = user?.role === "INSTRUCTOR";
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-card/95 backdrop-blur-sm supports-[backdrop-filter]:bg-card/80">
+    <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-card/95 backdrop-blur-sm supports-backdrop-filter:bg-card/80">
       <div className="flex h-14 items-center justify-between px-4">
         {/* 좌측: 햄버거 메뉴 */}
         <Sheet open={isMenuOpen} onOpenChange={setIsMenuOpen}>
@@ -141,7 +149,7 @@ export function Header() {
               <span className="sr-only">{"메뉴 열기"}</span>
             </Button>
           </SheetTrigger>
-          <SheetContent side="left" className="w-[300px] p-0 sm:w-[340px]">
+          <SheetContent side="left" className="w-75 p-0 sm:w-85">
             <SheetHeader className="border-b border-border/40 bg-primary/5 px-5 py-5">
               <SheetTitle className="flex items-center gap-2 text-left text-primary">
                 {isTeacher ? (
@@ -300,13 +308,12 @@ export function Header() {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="cursor-pointer rounded-lg p-3">
+            <DropdownMenuItem
+              className="cursor-pointer rounded-lg p-3"
+              onClick={() => setIsProfileModalOpen(true)}
+            >
               <User className="mr-3 size-4 text-muted-foreground" />
               {"프로필 설정"}
-            </DropdownMenuItem>
-            <DropdownMenuItem className="cursor-pointer rounded-lg p-3">
-              <Settings className="mr-3 size-4 text-muted-foreground" />
-              {"계정 설정"}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -317,8 +324,8 @@ export function Header() {
               {"로그아웃"}
             </DropdownMenuItem>
             <DropdownMenuItem
-              variant="destructive"
-              className="cursor-pointer rounded-lg p-3"
+              className="cursor-pointer rounded-lg p-3 text-destructive focus:text-destructive"
+              onClick={() => setIsDeleteDialogOpen(true)}
             >
               <Trash2 className="mr-3 size-4" />
               {"회원 탈퇴"}
@@ -326,6 +333,15 @@ export function Header() {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      <EditProfileModal
+        open={isProfileModalOpen}
+        onOpenChange={setIsProfileModalOpen}
+      />
+      <DeleteAccountDialog
+        open={isDeleteDialogOpen}
+        onOpenChange={setIsDeleteDialogOpen}
+      />
     </header>
   );
 }
