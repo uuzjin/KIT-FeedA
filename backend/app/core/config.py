@@ -5,6 +5,10 @@ class Settings(BaseSettings):
     SUPABASE_URL: str
     SUPABASE_KEY: str
     SUPABASE_JWT_SECRET: str
+    # RS256 등 비대칭 서명 시 PEM 공개키 (한 줄 \n 이스케이프 또는 멀티라인 .env)
+    SUPABASE_JWT_PUBLIC_KEY_PEM: str = ""
+    # 허용 JWT alg 목록 (쉼표 구분). 기본 HS256; 필요 시 "HS256,RS256"
+    SUPABASE_JWT_ALGORITHMS: str = "HS256"
     SUPABASE_SERVICE_KEY: str = ""   # auth.admin 작업용 (탈퇴 계정 영구 삭제)
     GOOGLE_API_KEY: str
     WHISPER_MODEL_SIZE: str = "base"
