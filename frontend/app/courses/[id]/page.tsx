@@ -94,15 +94,17 @@ export default function CourseDetailPage() {
   }
 
   const course = data?.course;
+  const backHref = user.role === "INSTRUCTOR" ? "/" : "/dashboard";
+  const backLabel = user.role === "INSTRUCTOR" ? "대시보드" : "강의 목록";
 
   return (
     <AppShell>
       <div className="mx-auto max-w-5xl space-y-8 px-4 py-8">
         <div>
           <Button variant="ghost" size="sm" className="mb-4 gap-1 px-0 text-muted-foreground" asChild>
-            <Link href="/dashboard">
+            <Link href={backHref}>
               <ArrowLeft className="size-4" />
-              강의 목록
+              {backLabel}
             </Link>
           </Button>
 
