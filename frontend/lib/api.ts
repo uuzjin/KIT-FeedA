@@ -946,7 +946,7 @@ export async function uploadScript(
 
 export async function getCourseScripts(
   courseId: string,
-): Promise<{ scripts: ScriptAnalysis[] }> {
+): Promise<{ scripts: CourseScriptListItem[] }> {
   return request(`/api/courses/${courseId}/scripts`);
 }
 
