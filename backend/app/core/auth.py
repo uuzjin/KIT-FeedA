@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Final
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import jwt
@@ -15,14 +16,14 @@ _bearer = HTTPBearer(auto_error=False)
 _JWT_ALGORITHMS_JWKS: Final[tuple[str, ...]] = ("ES256", "RS256")
 
 
-@lru_cache(maxsize=1)
-def _jwks_client() -> PyJWKClient:
-    uri = settings.supabase_jwks_uri()
-    # 일부 호스팅/엣지에서 anon 키를 요구하는 경우가 있어 apikey 헤더를 붙인다 (공개 JWKS라 무해).
-    headers: dict[str, str] = {}
-    if (settings.SUPABASE_KEY or "").strip():
-        headers["apikey"] = settings.SUPABASE_KEY.strip()
-    return PyJWKClient(uri, headers=headers or None)
+# @lru_cache(maxsize=1)
+# def _jwks_client() -> PyJWKClient:
+#     uri = settings.supabase_jwks_uri()
+#     # 일부 호스팅/엣지에서 anon 키를 요구하는 경우가 있어 apikey 헤더를 붙인다 (공개 JWKS라 무해).
+#     headers: dict[str, str] = {}
+#     if (settings.SUPABASE_KEY or "").strip():
+#         headers["apikey"] = settings.SUPABASE_KEY.strip()
+#     return PyJWKClient(uri, headers=headers or None)
 
 
 def _extract_bearer_token(credentials: HTTPAuthorizationCredentials | None) -> str:
