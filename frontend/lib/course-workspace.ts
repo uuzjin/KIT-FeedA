@@ -1,27 +1,29 @@
 import {
   getCourseDetail,
-  getCourseEnrollments,
+  getCourseStudents,
   getCourseScripts,
   getCourseSchedules,
-  getPreviewGuideForSchedule,
-  getReviewSummaryForSchedule,
+  getCourseMaterials,
 } from "@/lib/api";
 
 export async function loadCourseWorkspace(courseId: string) {
-  const [course, enrollments, scriptsRes, schedulesRes] = await Promise.all([
-    getCourseDetail(courseId),
-    getCourseEnrollments(courseId),
-    getCourseScripts(courseId),
-    getCourseSchedules(courseId),
-  ]);
+  const [course, enrollments, scriptsRes, schedulesRes, previewRes, reviewRes] =
+    await Promise.all([
+      getCourseDetail(courseId),
+      getCourseStudents(courseId),
+      getCourseScripts(courseId),
+      getCourseSchedules(courseId),
+      getCourseMaterials(courseId, "PREVIEW_GUIDE"),
+      getCourseMaterials(courseId, "REVIEW_SUMMARY"),
+    ]);
 
-  const scheduleExtras = await Promise.all(
-    schedulesRes.schedules.map(async (s) => ({
-      schedule: s,
-      preview: await getPreviewGuideForSchedule(courseId, s.scheduleId),
-      review: await getReviewSummaryForSchedule(courseId, s.scheduleId),
-    }))
-  );
+  const scheduleExtras = schedulesRes.schedules.map((s) => ({
+    schedule: s,
+    preview:
+      previewRes.materials.find((m) => m.scheduleId === s.scheduleId) || null,
+    review:
+      reviewRes.materials.find((m) => m.scheduleId === s.scheduleId) || null,
+  }));
 
   return {
     course,
