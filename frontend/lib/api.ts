@@ -284,9 +284,7 @@ export async function getCourses(semester?: string) {
   );
 }
 
-export async function getCourseDetail(
-  courseId: string,
-): Promise<
+export async function getCourseDetail(courseId: string): Promise<
   Course & {
     instructor: { userId: string; name: string; email: string };
     currentStudents: number;
