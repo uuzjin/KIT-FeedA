@@ -22,14 +22,22 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { getNotices, getNoticeSettings, updateNoticeSettings, type Notice, type NoticeSettings } from "@/lib/api";
+import {
+  getNotices,
+  getNoticeSettings,
+  Announcement,
+  updateNoticeSettings,
+  type Notice,
+  type NoticeSettings,
+} from "@/lib/api";
 
 const publishedAnnouncements = [
   {
     id: 1,
     course: "데이터베이스 개론",
     title: "3주차 예습 안내",
-    content: "다음 주 수업에서는 SQL SELECT 구문을 학습합니다. 첨부된 예습 자료를 미리 확인해 주세요.",
+    content:
+      "다음 주 수업에서는 SQL SELECT 구문을 학습합니다. 첨부된 예습 자료를 미리 확인해 주세요.",
     views: 42,
     publishedAt: "오늘",
     type: "예습",
@@ -38,7 +46,8 @@ const publishedAnnouncements = [
     id: 2,
     course: "운영체제",
     title: "중간고사 범위 공지",
-    content: "중간고사 범위는 1주차부터 7주차까지입니다. 시험 일시: 4월 20일 10:00",
+    content:
+      "중간고사 범위는 1주차부터 7주차까지입니다. 시험 일시: 4월 20일 10:00",
     views: 38,
     publishedAt: "2일 전",
     type: "시험",
@@ -67,13 +76,16 @@ const draftAnnouncements = [
 
 export function TeacherAnnouncements() {
   const [activeTab, setActiveTab] = useState("published");
-  const [notices, setNotices] = useState<Notice[]>([]);
+  const [notices, setNotices] = useState<Announcement[]>([]);
   const [settings, setSettings] = useState<NoticeSettings | null>(null);
 
   useEffect(() => {
     const load = async () => {
       try {
-        const [noticesData, settingsData] = await Promise.all([getNotices(), getNoticeSettings()]);
+        const [noticesData, settingsData] = await Promise.all([
+          getNotices(),
+          getNoticeSettings(),
+        ]);
         setNotices(noticesData);
         setSettings(settingsData);
       } catch {
@@ -99,7 +111,9 @@ export function TeacherAnnouncements() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-foreground">{"공지사항"}</h1>
-          <p className="text-sm text-muted-foreground">{"공지사항 작성 및 관리"}</p>
+          <p className="text-sm text-muted-foreground">
+            {"공지사항 작성 및 관리"}
+          </p>
         </div>
         <Button className="gap-2">
           <Plus className="size-4" />
@@ -115,7 +129,9 @@ export function TeacherAnnouncements() {
               <Sparkles className="size-6 text-primary" />
             </div>
             <div className="flex-1">
-              <h3 className="font-semibold text-foreground">{"AI 공지문 생성"}</h3>
+              <h3 className="font-semibold text-foreground">
+                {"AI 공지문 생성"}
+              </h3>
               <p className="text-sm text-muted-foreground">
                 {"템플릿을 선택하면 AI가 공지문 초안을 자동으로 작성합니다."}
               </p>
@@ -139,7 +155,11 @@ export function TeacherAnnouncements() {
         <Card className="border-border/40">
           <CardContent className="flex items-center justify-between p-4">
             <p className="text-sm text-muted-foreground">
-              {"알림 채널: "}{settings.channels.join(", ")}{" · 마감 "}{settings.deadline_hours_before}{"시간 전"}
+              {"알림 채널: "}
+              {settings.channels.join(", ")}
+              {" · 마감 "}
+              {settings.deadline_hours_before}
+              {"시간 전"}
             </p>
             <Button size="sm" variant="outline" onClick={handleSaveSettings}>
               {"설정 저장"}
@@ -165,13 +185,13 @@ export function TeacherAnnouncements() {
           <div className="flex flex-col gap-3">
             {(notices.length > 0
               ? notices.map((notice) => ({
-                  id: notice.id,
+                  id: notice.announcementId,
                   course: "공통",
                   title: notice.title,
                   content: "백엔드 공지 데이터입니다.",
                   views: 0,
                   publishedAt: "방금",
-                  type: notice.type,
+                  type: notice.templateType,
                 }))
               : publishedAnnouncements
             ).map((announcement) => (
@@ -183,14 +203,22 @@ export function TeacherAnnouncements() {
                         <Badge variant="outline" className="text-xs">
                           {announcement.course}
                         </Badge>
-                        <Badge variant={
-                          announcement.type === "예습" ? "default" :
-                          announcement.type === "시험" ? "destructive" : "secondary"
-                        } className="text-xs">
+                        <Badge
+                          variant={
+                            announcement.type === "예습"
+                              ? "default"
+                              : announcement.type === "시험"
+                                ? "destructive"
+                                : "secondary"
+                          }
+                          className="text-xs"
+                        >
                           {announcement.type}
                         </Badge>
                       </div>
-                      <p className="mt-2 font-medium text-foreground">{announcement.title}</p>
+                      <p className="mt-2 font-medium text-foreground">
+                        {announcement.title}
+                      </p>
                       <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
                         {announcement.content}
                       </p>
@@ -201,7 +229,8 @@ export function TeacherAnnouncements() {
                         </span>
                         <span className="flex items-center gap-1">
                           <Eye className="size-3" />
-                          {"조회 "}{announcement.views}
+                          {"조회 "}
+                          {announcement.views}
                         </span>
                       </div>
                     </div>
@@ -262,9 +291,12 @@ export function TeacherAnnouncements() {
                               {announcement.type}
                             </Badge>
                           </div>
-                          <p className="mt-1 font-medium text-foreground">{announcement.title}</p>
+                          <p className="mt-1 font-medium text-foreground">
+                            {announcement.title}
+                          </p>
                           <p className="mt-1 text-xs text-muted-foreground">
-                            {"수정 "}{announcement.lastModified}
+                            {"수정 "}
+                            {announcement.lastModified}
                           </p>
                         </div>
                       </div>
