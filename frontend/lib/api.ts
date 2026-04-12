@@ -494,6 +494,21 @@ export type CourseInviteResponse = {
   createdAt: string;
 };
 
+export type CourseInvitePreview = {
+  courseId: string;
+  courseName: string;
+  description: string | null;
+  instructorName: string;
+  expiresAt: string | null;
+  isExpired: boolean;
+};
+
+export async function getInvitePreview(token: string): Promise<CourseInvitePreview> {
+  return request<CourseInvitePreview>(`/api/courses/invites/${token}`, {
+    method: "GET",
+  });
+}
+
 export async function createCourseInvite(
   courseId: string,
   payload?: { expiresAt?: string },

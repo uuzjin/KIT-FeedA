@@ -362,7 +362,8 @@ def create_invite(
     if not expires_at:
         expires_at = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
 
-    base = (settings.FRONTEND_BASE_URL or "http://localhost:3000").rstrip("/")
+    # 환경변수에서 가져온 실제 도메인 사용 (기본값 http://localhost:3000)
+    base = settings.FRONTEND_BASE_URL.rstrip("/")
 
     for _ in range(5):
         token = secrets.token_urlsafe(32)
@@ -385,6 +386,61 @@ def create_invite(
             }
 
     raise HTTPException(status_code=500, detail="초대 링크 생성에 실패했습니다. 잠시 후 다시 시도하세요.")
+
+
+# ── 3.2.1-B-2 초대 미리보기 (토큰 정보 조회) ──────────────────────────────────
+@router.get("/invites/{token}", status_code=200)
+def get_invite_preview(token: str):
+    """학생이 수강 등록 전 강의 정보를 미리 확인하는 엔드포인트."""
+    invite = (
+        supabase.table("course_invites")
+        .select("course_id, expires_at, created_by")
+        .eq("token", token)
+        .maybe_single()
+        .execute()
+    )
+    if not invite.data:
+        raise HTTPException(status_code=404, detail="유효하지 않은 초대 코드입니다.")
+
+    course_id = invite.data["course_id"]
+    expires_raw = invite.data.get("expires_at")
+    
+    # 만료 체크
+    is_expired = False
+    if expires_raw:
+        expires_at = datetime.fromisoformat(str(expires_raw).replace("Z", "+00:00"))
+        if datetime.now(timezone.utc) > expires_at:
+            is_expired = True
+
+    # 강의 정보 및 강사 정보 조회
+    course_row = (
+        supabase.table("courses")
+        .select("course_name, description")
+        .eq("id", course_id)
+        .maybe_single()
+        .execute()
+    )
+    if not course_row.data:
+        raise HTTPException(status_code=404, detail="강의 정보를 찾을 수 없습니다.")
+
+    # 강사 정보 (초대 링크 생성자)
+    instructor_row = (
+        supabase.table("profiles")
+        .select("name")
+        .eq("id", invite.data["created_by"])
+        .maybe_single()
+        .execute()
+    )
+    instructor_name = instructor_row.data["name"] if instructor_row.data else "알 수 없는 강사"
+
+    return {
+        "courseId": course_id,
+        "courseName": course_row.data["course_name"],
+        "description": course_row.data["description"],
+        "instructorName": instructor_name,
+        "expiresAt": expires_raw,
+        "isExpired": is_expired,
+    }
 
 
 # ── 3.2.1-C 초대 링크로 수강 등록 (토큰만) ────────────────────────────────────
