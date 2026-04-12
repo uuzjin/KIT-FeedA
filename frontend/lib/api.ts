@@ -64,8 +64,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
           message?: string;
         };
         backendMessage =
-          (typeof errorData.detail === "string" ? errorData.detail : undefined) ||
-          (typeof errorData.message === "string" ? errorData.message : undefined) ||
+          (typeof errorData.detail === "string"
+            ? errorData.detail
+            : undefined) ||
+          (typeof errorData.message === "string"
+            ? errorData.message
+            : undefined) ||
           backendMessage;
       }
     } catch {
@@ -554,7 +558,7 @@ export async function updateNoticeSettings(payload: NoticeSettings) {
   return request<{ message: string; settings: NoticeSettings }>(
     "/api/notices/settings",
     {
-      method: "POST",
+      method: "PUT",
       body: JSON.stringify(payload),
     },
   );
@@ -1268,9 +1272,7 @@ export async function publishAnnouncement(
   );
 }
 
-export async function joinCourseByInviteToken(
-  token: string,
-): Promise<{
+export async function joinCourseByInviteToken(token: string): Promise<{
   courseId: string;
   message: string;
   courseName?: string;
