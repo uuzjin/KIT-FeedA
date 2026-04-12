@@ -7,7 +7,13 @@ import {
   syncLmsStudents,
   type LmsSyncRecord,
 } from "@/lib/api";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -59,7 +65,8 @@ export function CourseInviteLmsPanel({
       const res = await getLmsSyncHistory(courseId);
       setSyncs(res.syncs);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "LMS 이력을 불러오지 못했습니다.";
+      const msg =
+        e instanceof Error ? e.message : "LMS 이력을 불러오지 못했습니다.";
       setSyncsError(msg);
       setSyncs([]);
     } finally {
@@ -85,7 +92,7 @@ export function CourseInviteLmsPanel({
         syncStudents: true,
       });
       setSyncMessage(
-        `동기화 완료 · 신규 연동 ${res.syncedStudents}명 · ${new Date(res.lastSyncAt).toLocaleString("ko-KR")}`
+        `동기화 완료 · 신규 연동 ${res.syncedStudents}명 · ${new Date(res.lastSyncAt).toLocaleString("ko-KR")}`,
       );
       await loadSyncs();
     } catch (e) {
@@ -103,12 +110,12 @@ export function CourseInviteLmsPanel({
     try {
       const expiresAt = defaultInviteExpiresAt();
       const res = await createCourseInvite(courseId, { expiresAt });
-      const base =
-        typeof window !== "undefined" ? window.location.origin : "";
-      setInviteUrl(`${base}/join?token=${encodeURIComponent(res.token)}`);
+      const base = typeof window !== "undefined" ? window.location.origin : "";
+      setInviteUrl(`${base}/join?token=${encodeURIComponent(res.inviteToken)}`);
       setInviteExpires(res.expiresAt);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "초대 링크를 만들지 못했습니다.";
+      const msg =
+        e instanceof Error ? e.message : "초대 링크를 만들지 못했습니다.";
       setInviteError(msg);
       setInviteUrl(null);
       setInviteExpires(null);
@@ -165,8 +172,16 @@ export function CourseInviteLmsPanel({
               <div className="space-y-2">
                 <Label>초대 URL</Label>
                 <div className="flex flex-col gap-2 sm:flex-row">
-                  <Input readOnly value={inviteUrl} className="font-mono text-xs" />
-                  <Button type="button" variant="secondary" onClick={copyInvite}>
+                  <Input
+                    readOnly
+                    value={inviteUrl}
+                    className="font-mono text-xs"
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={copyInvite}
+                  >
                     <Copy className="size-4" />
                     {copied ? "복사됨" : "복사"}
                   </Button>
@@ -189,7 +204,8 @@ export function CourseInviteLmsPanel({
             LMS 연동
           </CardTitle>
           <CardDescription>
-            LMS에서 수강생을 가져와 FeedA 수강 명단과 맞춥니다. 동기화 이력은 아래에 표시됩니다.
+            LMS에서 수강생을 가져와 FeedA 수강 명단과 맞춥니다. 동기화 이력은
+            아래에 표시됩니다.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -236,8 +252,16 @@ export function CourseInviteLmsPanel({
                 수강생 동기화 실행
               </Button>
               {syncMessage && (
-                <Alert variant={syncMessage.includes("실패") || syncMessage.includes("오류") ? "destructive" : "default"}>
-                  <AlertDescription className="text-sm">{syncMessage}</AlertDescription>
+                <Alert
+                  variant={
+                    syncMessage.includes("실패") || syncMessage.includes("오류")
+                      ? "destructive"
+                      : "default"
+                  }
+                >
+                  <AlertDescription className="text-sm">
+                    {syncMessage}
+                  </AlertDescription>
                 </Alert>
               )}
             </div>
@@ -253,7 +277,9 @@ export function CourseInviteLmsPanel({
                 <AlertDescription>{syncsError}</AlertDescription>
               </Alert>
             ) : syncs.length === 0 ? (
-              <p className="text-sm text-muted-foreground">아직 LMS 동기화 이력이 없습니다.</p>
+              <p className="text-sm text-muted-foreground">
+                아직 LMS 동기화 이력이 없습니다.
+              </p>
             ) : (
               <ul className="space-y-2">
                 {syncs.map((s) => (
