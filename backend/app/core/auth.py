@@ -9,14 +9,30 @@ _bearer = HTTPBearer()
 
 def _decode_token(token: str) -> dict:
     try:
-        # verify_aud를 해제하여 불필요한 토큰 타겟팅 충돌 방지
-        return jwt.decode(
-            token,
-            settings.SUPABASE_JWT_SECRET,
-            algorithms=["HS256"],
-            options={"verify_aud": False},
-        )
-    except JWTError as e:
+        unverified_header = jwt.get_unverified_header(token)
+        alg = unverified_header.get("alg", "HS256")
+        
+        if alg == "HS256":
+            # 기존 방식: HS256은 로컬에서 시크릿 키로 직접 검증
+            return jwt.decode(
+                token,
+                settings.SUPABASE_JWT_SECRET,
+                algorithms=["HS256"],
+                options={"verify_aud": False},
+            )
+        else:
+            # RS256 등 비대칭키는 Supabase Auth 서버를 통해 안전하게 검증
+            from ..database import supabase
+            user_res = supabase.auth.get_user(token)
+            if user_res and user_res.user:
+                return {
+                    "sub": user_res.user.id,
+                    "email": user_res.user.email,
+                    "user_metadata": user_res.user.user_metadata or {},
+                }
+            raise ValueError(f"Supabase Auth API 검증 실패 (alg: {alg})")
+            
+    except Exception as e:
         print(f"JWT Verification Failed: {e}")  # 서버 로그(Railway) 확인용
         raise HTTPException(status_code=401, detail=f"토큰 검증 실패: {str(e)}")
 
