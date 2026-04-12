@@ -67,6 +67,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       console.error(
         `❌ [API Error] 401 Unauthorized - 백엔드 응답: ${backendMessage}`,
       );
+      if (typeof window !== "undefined") {
+        // 로그인 페이지로 강제 이동하여 토큰 만료/무효화 상태 해결
+        window.location.href = "/login";
+      }
     }
     throw new Error(backendMessage);
   }
