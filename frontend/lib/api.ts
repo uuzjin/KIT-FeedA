@@ -67,10 +67,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       console.error(
         `❌ [API Error] 401 Unauthorized - 백엔드 응답: ${backendMessage}`,
       );
-
-      if (typeof window !== "undefined") {
-        window.location.href = "/login";
-      }
     }
     throw new Error(backendMessage);
   }
