@@ -384,17 +384,19 @@ export async function deleteCourseSchedule(
   });
 }
 
+export type CourseEnrollment = {
+  userId: string;
+  name: string;
+  email: string;
+  joinedAt: string;
+};
+
 export async function getCourseStudents(
   courseId: string,
   page?: number,
   size?: number,
 ): Promise<{
-  students: Array<{
-    userId: string;
-    name: string;
-    email: string;
-    joinedAt: string;
-  }>;
+  students: CourseEnrollment[];
   totalCount: number;
 }> {
   const params = new URLSearchParams();
