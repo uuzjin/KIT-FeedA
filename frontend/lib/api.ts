@@ -434,21 +434,51 @@ export async function removeCourseStudent(
 
 export async function createCourseInvite(
   courseId: string,
-  payload?: { expiresAt?: string }
-): Promise<{ inviteToken: string; inviteLink: string; expiresAt: string }> {
+  payload: { expiresAt: string }
+): Promise<{ token: string; expiresAt: string }> {
   return request(`/api/courses/${courseId}/invites`, {
     method: "POST",
-    body: JSON.stringify(payload || {}),
+    body: JSON.stringify(payload),
   });
 }
 
-export async function acceptCourseInvite(
-  courseId: string,
-  token: string
-): Promise<{ courseId: string; courseName: string; joinedAt: string }> {
-  return request(`/api/courses/${courseId}/invites/${token}/accept`, {
+/** 초대 토큰으로 수강 등록 (POST /api/courses/join) */
+export async function joinCourseByInviteToken(token: string) {
+  return request<{ message: string; courseId: string }>("/api/courses/join", {
     method: "POST",
+    body: JSON.stringify({ token }),
   });
+}
+
+export type LmsSyncRecord = {
+  syncId: string;
+  lmsType: string;
+  lmsCourseId: string;
+  syncedStudents: number;
+  syncedAt: string;
+};
+
+export async function getLmsSyncHistory(courseId: string) {
+  return request<{ syncs: LmsSyncRecord[]; totalCount: number }>(
+    `/api/courses/${courseId}/lms-syncs`
+  );
+}
+
+export async function syncLmsStudents(
+  courseId: string,
+  payload: { lmsType: string; lmsCourseId: string; syncStudents?: boolean }
+) {
+  return request<{ syncId: string | null; syncedStudents: number; lastSyncAt: string }>(
+    `/api/courses/${courseId}/lms-syncs`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        lmsType: payload.lmsType,
+        lmsCourseId: payload.lmsCourseId,
+        syncStudents: payload.syncStudents ?? true,
+      }),
+    }
+  );
 }
 
 export async function getNoticeSettings() {

@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
+import { CourseInviteLmsPanel } from "@/components/courses/course-invite-lms-panel";
 import {
   ArrowLeft,
   BookOpen,
@@ -147,6 +148,13 @@ export default function CourseDetailPage() {
                   )}
                 </div>
               </div>
+
+              <Separator className="my-8" />
+
+              <CourseInviteLmsPanel
+                courseId={course.courseId}
+                isInstructor={user.role === "INSTRUCTOR"}
+              />
 
               <Separator className="my-8" />
 
