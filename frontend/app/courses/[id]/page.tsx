@@ -7,7 +7,13 @@ import { AppShell } from "@/components/layout/app-shell";
 import { useAuth } from "@/contexts/auth-context";
 import { loadCourseWorkspace } from "@/lib/course-workspace";
 import type { CourseEnrollment, CourseScriptListItem } from "@/lib/api";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
@@ -36,7 +42,9 @@ export default function CourseDetailPage() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [data, setData] = useState<Awaited<ReturnType<typeof loadCourseWorkspace>> | null>(null);
+  const [data, setData] = useState<Awaited<
+    ReturnType<typeof loadCourseWorkspace>
+  > | null>(null);
 
   useEffect(() => {
     if (isHydrated && !isLoading && !user) {
@@ -54,7 +62,8 @@ export default function CourseDetailPage() {
         const res = await loadCourseWorkspace(courseId);
         setData(res);
       } catch (e) {
-        const msg = e instanceof Error ? e.message : "강의 정보를 불러오지 못했습니다.";
+        const msg =
+          e instanceof Error ? e.message : "강의 정보를 불러오지 못했습니다.";
         setError(msg);
         setData(null);
       } finally {
@@ -99,7 +108,12 @@ export default function CourseDetailPage() {
     <AppShell>
       <div className="mx-auto max-w-5xl space-y-8 px-4 py-8">
         <div>
-          <Button variant="ghost" size="sm" className="mb-4 gap-1 px-0 text-muted-foreground" asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mb-4 gap-1 px-0 text-muted-foreground"
+            asChild
+          >
             <Link href="/dashboard">
               <ArrowLeft className="size-4" />
               강의 목록
@@ -123,7 +137,9 @@ export default function CourseDetailPage() {
             <>
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-2xl font-semibold tracking-tight">{course.courseName}</h1>
+                  <h1 className="text-2xl font-semibold tracking-tight">
+                    {course.courseName}
+                  </h1>
                   <Badge variant="secondary">{course.semester}</Badge>
                 </div>
                 <p className="text-muted-foreground">
@@ -212,20 +228,24 @@ export default function CourseDetailPage() {
 
 function StudentList({ students }: { students: CourseEnrollment[] }) {
   if (!students.length) {
-    return <p className="text-sm text-muted-foreground">등록된 수강생이 없습니다.</p>;
+    return (
+      <p className="text-sm text-muted-foreground">등록된 수강생이 없습니다.</p>
+    );
   }
 
   return (
     <ul className="space-y-3">
       {students.map((s) => (
         <li
-          key={s.studentId}
+          key={s.userId}
           className="flex flex-col rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-sm"
         >
           <span className="font-medium">{s.name || "(이름 없음)"}</span>
-          <span className="text-xs text-muted-foreground">{s.email || s.studentId}</span>
+          <span className="text-xs text-muted-foreground">
+            {s.email || s.userId}
+          </span>
           <span className="mt-1 text-xs text-muted-foreground">
-            등록: {s.joinMethod} · {new Date(s.joinedAt).toLocaleString("ko-KR")}
+            등록: {new Date(s.joinedAt).toLocaleString("ko-KR")}
           </span>
         </li>
       ))}
@@ -235,7 +255,11 @@ function StudentList({ students }: { students: CourseEnrollment[] }) {
 
 function ScriptList({ scripts }: { scripts: CourseScriptListItem[] }) {
   if (!scripts.length) {
-    return <p className="text-sm text-muted-foreground">업로드된 스크립트가 없습니다.</p>;
+    return (
+      <p className="text-sm text-muted-foreground">
+        업로드된 스크립트가 없습니다.
+      </p>
+    );
   }
 
   return (
@@ -265,7 +289,11 @@ function ScheduleMaterialsList({
   rows: Awaited<ReturnType<typeof loadCourseWorkspace>>["scheduleExtras"];
 }) {
   if (!rows.length) {
-    return <p className="text-sm text-muted-foreground">등록된 주차 스케줄이 없습니다.</p>;
+    return (
+      <p className="text-sm text-muted-foreground">
+        등록된 주차 스케줄이 없습니다.
+      </p>
+    );
   }
 
   return (
@@ -287,22 +315,24 @@ function ScheduleMaterialsList({
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-lg bg-muted/30 p-3 text-sm">
-              <p className="mb-1 text-xs font-medium text-muted-foreground">예습 가이드</p>
+              <p className="mb-1 text-xs font-medium text-muted-foreground">
+                예습 가이드
+              </p>
               {preview ? (
                 <>
                   <p className="font-medium">{preview.title}</p>
-                  <p className="text-xs text-muted-foreground">상태: {preview.status}</p>
                 </>
               ) : (
                 <p className="text-muted-foreground">아직 없음</p>
               )}
             </div>
             <div className="rounded-lg bg-muted/30 p-3 text-sm">
-              <p className="mb-1 text-xs font-medium text-muted-foreground">복습 요약</p>
+              <p className="mb-1 text-xs font-medium text-muted-foreground">
+                복습 요약
+              </p>
               {review ? (
                 <>
                   <p className="font-medium">{review.title}</p>
-                  <p className="text-xs text-muted-foreground">상태: {review.status}</p>
                 </>
               ) : (
                 <p className="text-muted-foreground">아직 없음</p>
