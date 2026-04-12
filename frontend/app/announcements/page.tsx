@@ -36,7 +36,7 @@ export default function AnnouncementsPage() {
 
   return (
     <AppShell>
-      {user.role === "teacher" ? <TeacherAnnouncements /> : <StudentAnnouncements />}
+      {user.role === "INSTRUCTOR" ? <TeacherAnnouncements /> : <StudentAnnouncements />}
     </AppShell>
   );
 }

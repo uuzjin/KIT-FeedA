@@ -154,7 +154,7 @@ export function TeacherMaterials() {
       </div>
 
       {/* AI 분석 카드 */}
-      <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-primary/10">
+      <Card className="border-primary/20 bg-linear-to-br from-primary/5 to-primary/10">
         <CardContent className="p-4">
           <div className="flex items-center gap-3">
             <div className="flex size-12 items-center justify-center rounded-xl bg-primary/20">

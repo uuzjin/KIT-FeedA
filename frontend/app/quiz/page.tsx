@@ -36,7 +36,7 @@ export default function QuizPage() {
 
   return (
     <AppShell>
-      {user.role === "teacher" ? <TeacherQuiz /> : <StudentQuiz />}
+      {user.role === "INSTRUCTOR" ? <TeacherQuiz /> : <StudentQuiz />}
     </AppShell>
   );
 }
