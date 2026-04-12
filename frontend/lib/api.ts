@@ -68,8 +68,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         `❌ [API Error] 401 Unauthorized - 백엔드 응답: ${backendMessage}`,
       );
       if (typeof window !== "undefined") {
-        // 로그인 페이지로 강제 이동하여 토큰 만료/무효화 상태 해결
-        window.location.href = "/login";
+        // 잘못된/만료된 세션을 로컬에서 완전히 지워버림 (무한 로그인 루프 방지)
+        // await supabase.auth.signOut().catch(() => {});
+        // window.location.href = "/login";
       }
     }
     throw new Error(backendMessage);

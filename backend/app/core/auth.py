@@ -1,37 +1,49 @@
+from functools import lru_cache
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
+import httpx
 
 from .config import settings
 
 _bearer = HTTPBearer()
 
+@lru_cache(maxsize=1000)
+def _get_user_from_supabase_cached(token: str) -> dict:
+    """Supabase API 반복 호출로 인한 Rate Limit 방지용 캐싱.
+    로컬의 ES256/RS256 비대칭 키 검증 에러를 원천 차단하기 위해 
+    REST API를 직접 호출하여 서버 측에서 안전하게 토큰을 검증합니다."""
+    url = f"{settings.SUPABASE_URL}/auth/v1/user"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "apikey": settings.SUPABASE_KEY
+    }
+    try:
+        response = httpx.get(url, headers=headers, timeout=10.0)
+        response.raise_for_status()
+        user_data = response.json()
+        
+        return {
+            "sub": user_data.get("id"),
+            "email": user_data.get("email"),
+            "user_metadata": user_data.get("user_metadata", {}),
+        }
+    except Exception as e:
+        print(f"Supabase /user endpoint failed: {e}")
+        raise ValueError("Supabase Auth API 검증 실패")
 
 def _decode_token(token: str) -> dict:
     try:
-        unverified_header = jwt.get_unverified_header(token)
-        alg = unverified_header.get("alg", "HS256")
+        # 1. 서명 검증 없이 페이로드만 추출 (로컬의 ES256 시크릿 키 불일치 에러 완벽 회피)
+        unverified_payload = jwt.get_unverified_claims(token)
         
-        if alg == "HS256":
-            # 기존 방식: HS256은 로컬에서 시크릿 키로 직접 검증
-            return jwt.decode(
-                token,
-                settings.SUPABASE_JWT_SECRET,
-                algorithms=["HS256"],
-                options={"verify_aud": False},
-            )
-        else:
-            # RS256 등 비대칭키는 Supabase Auth 서버를 통해 안전하게 검증
-            from ..database import supabase
-            user_res = supabase.auth.get_user(token)
-            if user_res and user_res.user:
-                return {
-                    "sub": user_res.user.id,
-                    "email": user_res.user.email,
-                    "user_metadata": user_res.user.user_metadata or {},
-                }
-            raise ValueError(f"Supabase Auth API 검증 실패 (alg: {alg})")
-            
+        # 2. Supabase Auth API를 통해 실제 토큰 유효성을 서버에서 검증 (캐싱 적용)
+        user_info = _get_user_from_supabase_cached(token)
+        
+        # 3. 사용자 정보 병합 후 반환
+        unverified_payload.update(user_info)
+        return unverified_payload
+        
     except Exception as e:
         print(f"JWT Verification Failed: {e}")  # 서버 로그(Railway) 확인용
         raise HTTPException(status_code=401, detail=f"토큰 검증 실패: {str(e)}")
