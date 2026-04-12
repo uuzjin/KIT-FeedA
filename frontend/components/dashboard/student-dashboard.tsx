@@ -26,6 +26,7 @@ import {
   StudentMaterialItem,
 } from "@/lib/api";
 import { useAuth } from "@/contexts/auth-context";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 export function StudentDashboard() {
   const router = useRouter();
@@ -36,7 +37,11 @@ export function StudentDashboard() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isAuthLoading || !user) return;
+    if (isAuthLoading) return;
+    if (!user) {
+      router.push("/login");
+      return;
+    }
 
     const loadData = async () => {
       setIsLoading(true);
@@ -170,6 +175,14 @@ export function StudentDashboard() {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 p-4 pb-24">
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="size-4" />
+          <AlertTitle>오류 발생</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
       {/* 주요 액션 버튼 */}
       <div className="grid grid-cols-2 gap-3 sm:gap-4">
         <Card
@@ -224,7 +237,7 @@ export function StudentDashboard() {
             {weeklyStats.map((stat) => (
               <Card
                 key={stat.label}
-                className="min-w-35 shrink-0 border-border/40"
+                className="min-w-[140px] shrink-0 border-border/40"
               >
                 <CardContent className="flex items-center gap-3 p-4">
                   <div
@@ -345,7 +358,7 @@ export function StudentDashboard() {
               studyMaterials.map((material) => (
                 <Card
                   key={material.id}
-                  className="min-w-50 shrink-0 border-border/40"
+                  className="min-w-[200px] shrink-0 border-border/40"
                 >
                   <CardContent className="p-4">
                     <div className="flex items-start justify-between">
@@ -369,7 +382,7 @@ export function StudentDashboard() {
                 </Card>
               ))
             ) : (
-              <Card className="min-w-50 shrink-0 border-border/40">
+              <Card className="min-w-[200px] shrink-0 border-border/40">
                 <CardContent className="p-4 text-center text-xs text-muted-foreground">
                   {"새로운 자료가 없습니다."}
                 </CardContent>

@@ -4,16 +4,13 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     SUPABASE_URL: str
     SUPABASE_KEY: str
-    # 비대칭(JWKS) 전환 후에는 사용자 JWT 검증에 쓰이지 않을 수 있으나, 레거시/다른 도구용으로 유지
-    SUPABASE_JWT_SECRET: str = ""
-    # 비우면 SUPABASE_URL 기준으로 공식 JWKS URL을 만든다.
-    # 공식: …/auth/v1/.well-known/jwks.json  (문서상 /auth/v1/keys 가 아님)
-    SUPABASE_JWKS_URL: str = ""
-    # jwt.decode(issuer=…) 에 사용. 비우면 {SUPABASE_URL}/auth/v1 (Supabase 기본 iss)
-    SUPABASE_JWT_ISSUER: str = ""
+    SUPABASE_JWT_SECRET: str
     SUPABASE_SERVICE_KEY: str = ""   # auth.admin 작업용 (탈퇴 계정 영구 삭제)
     GOOGLE_API_KEY: str
     WHISPER_MODEL_SIZE: str = "base"
+
+    # ── CORS 허용 도메인 ───────────────────────────────────────────────────────
+    FRONTEND_URL: str = "https://frontend-production-90dc.up.railway.app"
 
     # ── 이메일 (SMTP) ──────────────────────────────────────────────────────────
     SMTP_HOST: str = ""
