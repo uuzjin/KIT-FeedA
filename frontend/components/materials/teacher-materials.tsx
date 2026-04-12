@@ -57,13 +57,13 @@ export function TeacherMaterials() {
     const fetchMaterialsData = async () => {
       try {
         // 1. 예습 자료 (preview_guides) 조회
-        const { data: previewData } = await supabase
+        const { data: previewData, error: previewError } = await supabase
           .from("preview_guides")
           .select("*")
           .eq("course_id", courseId)
           .order("created_at", { ascending: false });
 
-        if (previewData) {
+        if (!previewError && previewData) {
           setPreviewMaterials(
             previewData.map((p) => ({
               id: p.id,
@@ -77,13 +77,13 @@ export function TeacherMaterials() {
         }
 
         // 2. 복습 자료 (review_summaries) 조회
-        const { data: reviewData } = await supabase
+        const { data: reviewData, error: reviewError } = await supabase
           .from("review_summaries")
           .select("*")
           .eq("course_id", courseId)
           .order("created_at", { ascending: false });
 
-        if (reviewData) {
+        if (!reviewError && reviewData) {
           setReviewMaterials(
             reviewData.map((r) => ({
               id: r.id,
