@@ -8,7 +8,6 @@ import {
   ReactNode,
 } from "react";
 import { supabase } from "@/lib/supabase/client";
-import { getUserProfile, UserProfile } from "@/lib/api";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 
 export type UserRole = "INSTRUCTOR" | "STUDENT" | "ADMIN";
@@ -25,7 +24,12 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isHydrated: boolean;
-  signUp: (email: string, password: string, name?: string, role?: "INSTRUCTOR" | "STUDENT") => Promise<{ user: SupabaseUser; session: any } | null>;
+  signUp: (
+    email: string,
+    password: string,
+    name?: string,
+    role?: "INSTRUCTOR" | "STUDENT",
+  ) => Promise<{ user: User; session: any } | null>;
   signIn: (email: string, password: string) => Promise<boolean>;
   signOut: () => Promise<void>;
   deleteAccount: () => Promise<void>;
@@ -53,7 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
         setSupabaseUser(session.user);
-        await fetchUserProfile(session.user.id, session.access_token);
+        fetchUserProfile(session.user);
       } else {
         setSupabaseUser(null);
         setUser(null);
@@ -73,7 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (session?.user) {
         setSupabaseUser(session.user);
-        await fetchUserProfile(session.user.id, session.access_token);
+        fetchUserProfile(session.user);
       }
     } catch (error) {
       console.error("Failed to initialize auth:", error);
@@ -82,48 +86,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const fetchUserProfile = async (userId: string, token: string) => {
+  const fetchUserProfile = (currentUser: SupabaseUser) => {
     try {
-      const profile = await getUserProfile(userId);
-      setUser({
-        id: profile.userId,
-        email: profile.email,
-        name: profile.name,
-        role: profile.role as UserRole,
-        profileImageUrl: profile.profileImageUrl,
-      });
-    } catch (error) {
-      console.warn("Failed to fetch user profile from API, using Supabase metadata:", error);
-      // Profile might not exist yet, use Supabase auth metadata as fallback
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      
-      if (session?.user) {
-        const authRole = (session.user.user_metadata?.role as UserRole) || "STUDENT";
-        const authEmail = session.user.email || "";
-        const authName = session.user.user_metadata?.name || authEmail.split("@")[0];
-        
+      if (currentUser) {
+        const authRole =
+          (currentUser.user_metadata?.role as UserRole) || "STUDENT";
+        const authEmail = currentUser.email || "";
+        const authName =
+          currentUser.user_metadata?.name || authEmail.split("@")[0];
+
         setUser({
-          id: userId,
+          id: currentUser.id,
           email: authEmail,
           name: authName,
           role: authRole,
-          profileImageUrl: session.user.user_metadata?.profileImageUrl,
+          profileImageUrl: currentUser.user_metadata?.profileImageUrl,
         });
       } else {
-        // Fallback if no session
         setUser({
-          id: userId,
+          id: "",
           email: "",
           name: "사용자",
           role: "STUDENT",
         });
       }
+    } catch (error) {
+      console.error("Failed to fetch user profile:", error);
     }
   };
 
-  const signUp = async (email: string, password: string, name?: string, role: "INSTRUCTOR" | "STUDENT" = "STUDENT") => {
+  const signUp = async (
+    email: string,
+    password: string,
+    name?: string,
+    role: "INSTRUCTOR" | "STUDENT" = "STUDENT",
+  ): Promise<{ user: User; session: any } | null> => {
     try {
       // Validate inputs
       if (!email || !password) {
@@ -143,7 +140,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (error) {
         // Handle specific Supabase errors
-        if (error.message.includes("already registered") || error.message.includes("already in use")) {
+        if (
+          error.message.includes("already registered") ||
+          error.message.includes("already in use")
+        ) {
           throw new Error("이미 등록된 이메일입니다.");
         }
         throw error;
@@ -153,7 +153,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error("회원가입 처리 중 오류가 발생했습니다.");
       }
 
-      return data;
+      const appUser: User = {
+        id: data.user.id,
+        email: data.user.email || "",
+        name: name || email.split("@")[0],
+        role: role,
+      };
+
+      return { user: appUser, session: data.session };
     } catch (error) {
       console.error("Sign up error:", error);
       const errorMessage =
@@ -187,7 +194,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (data.session?.user) {
         setSupabaseUser(data.session.user);
         try {
-          await fetchUserProfile(data.session.user.id, data.session.access_token);
+          fetchUserProfile(data.session.user);
         } catch (profileError) {
           // Profile fetch failure shouldn't block login
           console.warn("Profile fetch skipped:", profileError);
@@ -246,7 +253,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error("Reset password error:", error);
       const errorMessage =
-        error instanceof Error ? error.message : "비밀번호 재설정 요청에 실패했습니다.";
+        error instanceof Error
+          ? error.message
+          : "비밀번호 재설정 요청에 실패했습니다.";
       throw new Error(errorMessage);
     }
   };
@@ -271,7 +280,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error("Update password error:", error);
       const errorMessage =
-        error instanceof Error ? error.message : "비밀번호 수정에 실패했습니다.";
+        error instanceof Error
+          ? error.message
+          : "비밀번호 수정에 실패했습니다.";
       throw new Error(errorMessage);
     }
   };
@@ -286,6 +297,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signIn,
         signOut,
         deleteAccount,
+        resetPasswordForEmail,
+        updatePassword,
         supabaseUser,
       }}
     >
