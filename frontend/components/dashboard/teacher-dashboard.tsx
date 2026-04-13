@@ -20,6 +20,7 @@ import {
   Sparkles,
   Loader2,
   AlertCircle,
+  ArrowRight,
 } from "lucide-react";
 import {
   getInstructorComprehensionTrends,
@@ -227,6 +228,19 @@ export function TeacherDashboard() {
       </div>
 
       {/* 주간 통계 */}
+      {selectedCourse?.courseId && (
+        <div className="flex justify-end">
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={() => router.push(`/courses/${selectedCourse.courseId}`)}
+          >
+            강의 상세 보기
+            <ArrowRight className="size-4" />
+          </Button>
+        </div>
+      )}
+
       <section>
         <h2 className="mb-3 text-sm font-semibold text-foreground">
           {"주간 통계"}
