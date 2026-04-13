@@ -44,8 +44,9 @@ import {
   Bell,
   Users,
   Trash2,
-  ChevronRight,
+  Plus,
 } from "lucide-react";
+import { createCourseSchedule } from "@/lib/api";
 
 function formatDays(days: string[]) {
   if (!days?.length) return "요일 미정";
@@ -70,7 +71,26 @@ export default function CourseDetailPage() {
   const [uploadResult, setUploadResult] = useState<string | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  
+  // 주차 추가 관련 상태
+  const [isAddingSchedule, setIsAddingSchedule] = useState(false);
+  const [newWeekNumber, setNewWeekNumber] = useState("");
+  const [newTopic, setNewTopic] = useState("");
+  const [isSubmittingSchedule, setIsSubmittingSchedule] = useState(false);
+
   const excelInputRef = useRef<HTMLInputElement>(null);
+
+  const refreshWorkspace = async () => {
+    if (!courseId) return;
+    try {
+      const res = await loadCourseWorkspace(courseId);
+      setData(res);
+      setEnrollments(res.enrollments.students);
+      setEnrollmentTotal(res.enrollments.totalCount);
+    } catch (e) {
+      console.error("Failed to refresh workspace:", e);
+    }
+  };
 
   useEffect(() => {
     if (isHydrated && !isLoading && !user) {
@@ -85,10 +105,7 @@ export default function CourseDetailPage() {
       setLoading(true);
       setError(null);
       try {
-        const res = await loadCourseWorkspace(courseId);
-        setData(res);
-        setEnrollments(res.enrollments.students);
-        setEnrollmentTotal(res.enrollments.totalCount);
+        await refreshWorkspace();
       } catch (e) {
         const msg =
           e instanceof Error ? e.message : "강의 정보를 불러오지 못했습니다.";
@@ -101,6 +118,29 @@ export default function CourseDetailPage() {
 
     void run();
   }, [user, courseId]);
+
+  const handleAddSchedule = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!courseId || !newWeekNumber || !newTopic) return;
+
+    setIsSubmittingSchedule(true);
+    try {
+      await createCourseSchedule(courseId, {
+        weekNumber: parseInt(newWeekNumber),
+        topic: newTopic,
+        date: new Date().toISOString().split("T")[0], // 기본값 오늘
+      });
+      setNewWeekNumber("");
+      setNewTopic("");
+      setIsAddingSchedule(false);
+      await refreshWorkspace();
+      alert(`${newWeekNumber}주차 스케줄이 추가되었습니다.`);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "스케줄 추가 실패");
+    } finally {
+      setIsSubmittingSchedule(false);
+    }
+  };
 
   const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -338,15 +378,67 @@ export default function CourseDetailPage() {
 
               <Card className="mt-8">
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    <BookOpen className="size-5 text-primary" />
-                    주차별 예습 · 복습 자료
-                  </CardTitle>
-                  <CardDescription>
-                    스케줄에 연결된 예습 가이드와 복습 요약이 있으면 표시됩니다.
-                  </CardDescription>
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <CardTitle className="flex items-center gap-2 text-lg">
+                        <BookOpen className="size-5 text-primary" />
+                        주차별 예습 · 복습 자료
+                      </CardTitle>
+                      <CardDescription>
+                        스케줄에 연결된 예습 가이드와 복습 요약이 있으면 표시됩니다.
+                      </CardDescription>
+                    </div>
+                    {user.role === "INSTRUCTOR" && (
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        className="gap-1.5"
+                        onClick={() => setIsAddingSchedule(!isAddingSchedule)}
+                      >
+                        <Plus className="size-3.5" />
+                        주차 추가
+                      </Button>
+                    )}
+                  </div>
                 </CardHeader>
                 <CardContent>
+                  {isAddingSchedule && (
+                    <form onSubmit={handleAddSchedule} className="mb-6 rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-4">
+                      <p className="text-sm font-semibold">새로운 주차 스케줄 등록</p>
+                      <div className="grid gap-4 sm:grid-cols-4">
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-medium text-muted-foreground">주차 (숫자)</label>
+                          <input
+                            type="number"
+                            min="1"
+                            max="16"
+                            placeholder="예: 1"
+                            className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                            value={newWeekNumber}
+                            onChange={(e) => setNewWeekNumber(e.target.value)}
+                            required
+                          />
+                        </div>
+                        <div className="sm:col-span-3 space-y-1.5">
+                          <label className="text-xs font-medium text-muted-foreground">주제 (Topic)</label>
+                          <input
+                            type="text"
+                            placeholder="예: 인공지능 개론 및 파이썬 기초"
+                            className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                            value={newTopic}
+                            onChange={(e) => setNewTopic(e.target.value)}
+                            required
+                          />
+                        </div>
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        <Button type="button" variant="ghost" size="sm" onClick={() => setIsAddingSchedule(false)}>취소</Button>
+                        <Button type="submit" size="sm" disabled={isSubmittingSchedule}>
+                          {isSubmittingSchedule ? "등록 중..." : "등록 완료"}
+                        </Button>
+                      </div>
+                    </form>
+                  )}
                   <ScheduleMaterialsList rows={data!.scheduleExtras} />
                 </CardContent>
               </Card>
