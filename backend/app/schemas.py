@@ -75,7 +75,7 @@ class EnrollStudentsRequest(BaseModel):
 
 
 class InviteCreateRequest(BaseModel):
-    expiresAt: str  # ISO 8601
+    expiresAt: str | None = None  # ISO 8601, 생략 시 7일 후
 
 
 class JoinCourseRequest(BaseModel):

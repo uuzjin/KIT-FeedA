@@ -6,7 +6,7 @@ from ..core.rate_limit import AI_RATE_LIMIT, limiter
 from ..database import supabase
 from ..dependencies import require_instructor_of
 
-router = APIRouter(prefix="/api/courses/{course_id}/announcements", tags=["notices"])
+router = APIRouter(tags=["notices"])
 
 
 class AnnouncementGenerateRequest(BaseModel):
@@ -18,6 +18,12 @@ class AnnouncementGenerateRequest(BaseModel):
 class AnnouncementUpdateRequest(BaseModel):
     title: str | None = None
     content: str | None = None
+
+
+class NoticeSettingsRequest(BaseModel):
+    channels: list[str] = []
+    deadline_hours_before: int = 24
+    quiz_notifications: bool = True
 
 
 def _format_announcement(row: dict) -> dict:
@@ -36,7 +42,7 @@ def _format_announcement(row: dict) -> dict:
 
 
 # ── 6.3.1 공지문 자동 생성 트리거 ────────────────────────────────────────────
-@router.post("", status_code=202)
+@router.post("/api/courses/{course_id}/announcements", status_code=202)
 @limiter.limit(AI_RATE_LIMIT)
 def generate_announcement(
     request: Request,
@@ -127,7 +133,7 @@ def _run_announcement_generation(
 
 
 # ── 공지문 목록 조회 ──────────────────────────────────────────────────────────
-@router.get("")
+@router.get("/api/courses/{course_id}/announcements")
 def list_announcements(
     course_id: str,
     template_type: str | None = None,
@@ -148,7 +154,7 @@ def list_announcements(
 
 
 # ── 공지문 상세 조회 ──────────────────────────────────────────────────────────
-@router.get("/{announcement_id}")
+@router.get("/api/courses/{course_id}/announcements/{announcement_id}")
 def get_announcement(
     course_id: str,
     announcement_id: str,
@@ -168,7 +174,7 @@ def get_announcement(
 
 
 # ── 공지문 수동 수정 (강사 검토 후) ──────────────────────────────────────────
-@router.put("/{announcement_id}")
+@router.put("/api/courses/{course_id}/announcements/{announcement_id}")
 def update_announcement(
     course_id: str,
     announcement_id: str,
@@ -194,7 +200,7 @@ def update_announcement(
 
 
 # ── 공지문 삭제 ───────────────────────────────────────────────────────────────
-@router.delete("/{announcement_id}", status_code=204)
+@router.delete("/api/courses/{course_id}/announcements/{announcement_id}", status_code=204)
 def delete_announcement(
     course_id: str,
     announcement_id: str,
@@ -202,3 +208,17 @@ def delete_announcement(
 ):
     require_instructor_of(course_id, current_user["id"])
     supabase.table("announcements").delete().eq("id", announcement_id).eq("course_id", course_id).execute()
+
+
+# ── 공지사항 설정 (404 에러 해결용) ──────────────────────────────────────────
+@router.get("/api/notices/settings")
+def get_notice_settings(current_user: dict = Depends(get_current_user)):
+    return {
+        "channels": ["IN_APP", "EMAIL"],
+        "deadline_hours_before": 24,
+        "quiz_notifications": True
+    }
+
+@router.put("/api/notices/settings")
+def update_notice_settings(payload: NoticeSettingsRequest, current_user: dict = Depends(get_current_user)):
+    return payload.model_dump()

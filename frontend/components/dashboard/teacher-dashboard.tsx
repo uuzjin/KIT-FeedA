@@ -20,6 +20,7 @@ import {
   Sparkles,
   Loader2,
   AlertCircle,
+  ArrowRight,
 } from "lucide-react";
 import {
   getInstructorComprehensionTrends,
@@ -30,10 +31,14 @@ import {
   UploadStatusItem,
 } from "@/lib/api";
 import { useAuth } from "@/contexts/auth-context";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { useCourse } from "@/contexts/course-context";
+import { CourseInfoBanner } from "@/components/layout/course-info-banner";
 
 export function TeacherDashboard() {
   const router = useRouter();
   const { user, isLoading: isAuthLoading } = useAuth();
+  const { selectedCourse } = useCourse();
   const [trends, setTrends] = useState<ComprehensionTrendItem[]>([]);
   const [weakTopics, setWeakTopics] = useState<WeakTopicItem[]>([]);
   const [uploadStatus, setUploadStatus] = useState<UploadStatusItem[]>([]);
@@ -45,38 +50,54 @@ export function TeacherDashboard() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isAuthLoading || !user) return;
+    if (isAuthLoading) return;
+    if (!user) {
+      router.push("/login");
+      return;
+    }
+
+    // 선택된 과목이 없으면 대기 (Context 로드 대기)
+    if (!selectedCourse?.courseId) return;
 
     const loadData = async () => {
       setIsLoading(true);
       setError(null);
       try {
-        const [trendsData, weakTopicsData, uploadStatusData] =
-          await Promise.all([
-            getInstructorComprehensionTrends(),
-            getInstructorWeakTopics(),
-            getInstructorUploadStatus(),
+        const [trendsRes, weakTopicsRes, uploadStatusRes] =
+          await Promise.allSettled([
+            getInstructorComprehensionTrends(selectedCourse.courseId),
+            getInstructorWeakTopics(selectedCourse.courseId),
+            getInstructorUploadStatus(selectedCourse.courseId),
           ]);
-        setTrends(trendsData.trends || []);
-        setOverallTrend(trendsData.overallTrend || "STABLE");
-        setWeakTopics(weakTopicsData.weakTopics || []);
-        setUploadStatus(uploadStatusData.uploadStatus || []);
-        setCompletionRate(uploadStatusData.completionRate || 0);
+
+        if (trendsRes.status === "fulfilled") {
+          setTrends(trendsRes.value.trends || []);
+          setOverallTrend(trendsRes.value.overallTrend || "STABLE");
+        } else {
+          setTrends([]);
+        }
+
+        if (weakTopicsRes.status === "fulfilled") {
+          setWeakTopics(weakTopicsRes.value.weakTopics || []);
+        } else {
+          setWeakTopics([]);
+        }
+
+        if (uploadStatusRes.status === "fulfilled") {
+          setUploadStatus(uploadStatusRes.value.uploadStatus || []);
+          setCompletionRate(uploadStatusRes.value.completionRate || 0);
+        } else {
+          setUploadStatus([]);
+          setCompletionRate(0);
+        }
       } catch (err) {
-        const message =
-          err instanceof Error
-            ? err.message
-            : "대시보드 데이터를 불러오지 못했습니다.";
-        setError(message);
-        setTrends([]);
-        setWeakTopics([]);
-        setUploadStatus([]);
+        setError("대시보드 데이터를 불러오는 중 일부 오류가 발생했습니다.");
       } finally {
         setIsLoading(false);
       }
     };
     void loadData();
-  }, [isAuthLoading, user]);
+  }, [isAuthLoading, user, selectedCourse?.courseId]);
 
   const weeklyStats = useMemo(() => {
     const uniqueCourses = new Set(trends.map((t) => t.courseId)).size;
@@ -152,6 +173,16 @@ export function TeacherDashboard() {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 p-4 pb-24">
+      <CourseInfoBanner />
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="size-4" />
+          <AlertTitle>오류 발생</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
       {/* 주요 액션 버튼 */}
       <div className="grid grid-cols-2 gap-3 sm:gap-4">
         <Card
@@ -197,6 +228,19 @@ export function TeacherDashboard() {
       </div>
 
       {/* 주간 통계 */}
+      {selectedCourse?.courseId && (
+        <div className="flex justify-end">
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={() => router.push(`/courses/${selectedCourse.courseId}`)}
+          >
+            강의 상세 보기
+            <ArrowRight className="size-4" />
+          </Button>
+        </div>
+      )}
+
       <section>
         <h2 className="mb-3 text-sm font-semibold text-foreground">
           {"주간 통계"}
@@ -206,7 +250,7 @@ export function TeacherDashboard() {
             {weeklyStats.map((stat) => (
               <Card
                 key={stat.label}
-                className="min-w-35 shrink-0 border-border/40"
+                className="min-w-[140px] shrink-0 border-border/40"
               >
                 <CardContent className="flex items-center gap-3 p-4">
                   <div

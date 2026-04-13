@@ -19,16 +19,21 @@ router = APIRouter(prefix="/api/courses/{course_id}/scripts", tags=["scripts"])
 
 
 def _format_script(row: dict) -> dict:
+    status = "analyzing"
+    if row.get("script_reports"):
+        status = "completed"
+
     return {
-        "scriptId": row["id"],
-        "courseId": row["course_id"],
+        "scriptId": row.get("id"),
+        "courseId": row.get("course_id"),
         "scheduleId": row.get("schedule_id"),
-        "title": row["title"],
-        "fileName": row["file_name"],
-        "fileSize": row["file_size"],
-        "mimeType": row["mime_type"],
+        "title": row.get("title"),
+        "fileName": row.get("file_name"),
+        "fileSize": row.get("file_size"),
+        "mimeType": row.get("mime_type"),
         "weekNumber": row.get("week_number"),
-        "uploadedAt": row["uploaded_at"],
+        "uploadedAt": row.get("uploaded_at") or row.get("created_at"),
+        "status": status,
     }
 
 
@@ -45,39 +50,65 @@ async def upload_script(
 ):
     require_instructor_of(course_id, current_user["id"])
 
-    file_id = str(uuid.uuid4())
-    storage_path = f"{course_id}/{file_id}_{file.filename}"
+    # schedule_id가 없는 경우 자동으로 첫 번째 스케줄 할당 시도
+    if not schedule_id:
+        schedules_res = (
+            supabase.table("course_schedules")
+            .select("id, week_number")
+            .eq("course_id", course_id)
+            .order("week_number", desc=False)
+            .limit(1)
+            .execute()
+        )
+        if schedules_res.data:
+            schedule_id = schedules_res.data[0]["id"]
+            # week_number가 없거나 0인 경우에만 스케줄의 주차 정보를 사용
+            if not week_number:
+                week_number = schedules_res.data[0]["week_number"]
+        else:
+            print(f"⚠️ 경고: course_id {course_id} 에 등록된 스케줄이 없어 schedule_id를 할당하지 못했습니다.")
 
-    await upload_file(file, BUCKET_SCRIPTS, storage_path, ALLOWED_SCRIPT_TYPES, MAX_SCRIPT_SIZE)
+    try:
+        file_id = str(uuid.uuid4())
+        storage_path = f"{course_id}/{file_id}_{file.filename}"
 
-    result = supabase.table("scripts").insert({
-        "course_id": course_id,
-        "schedule_id": schedule_id,
-        "title": title,
-        "file_name": file.filename,
-        "file_size": file.size or 0,
-        "mime_type": file.content_type,
-        "content_path": storage_path,
-        "week_number": week_number,
-    }).execute()
+        await upload_file(file, BUCKET_SCRIPTS, storage_path, ALLOWED_SCRIPT_TYPES, MAX_SCRIPT_SIZE)
 
-    if not result.data:
-        raise HTTPException(status_code=500, detail="스크립트 업로드에 실패했습니다.")
+        insert_data = {
+            "course_id": course_id,
+            "schedule_id": schedule_id,
+            "title": title,
+            "file_name": file.filename,
+            "file_size": file.size or 0,
+            "mime_type": file.content_type,
+            "content_path": storage_path,
+        }
+        if week_number:
+            insert_data["week_number"] = week_number
 
-    script = result.data[0]
-    script_id = script["id"]
+        result = supabase.table("scripts").insert(insert_data).execute()
 
-    # 분석 레코드 미리 생성 (pending)
-    analysis_rows = [
-        {"script_id": script_id, "analysis_type": t}
-        for t in ("logic", "terminology", "prerequisites")
-    ]
-    supabase.table("script_analyses").insert(analysis_rows).execute()
+        if not result.data:
+            raise HTTPException(status_code=500, detail="스크립트 업로드에 실패했습니다.")
 
-    # 1단계 분석 background 실행
-    background_tasks.add_task(_run_structural_analysis, script_id, storage_path, file.content_type)
+        script = result.data[0]
+        script_id = script["id"]
 
-    return _format_script(script)
+        # 분석 레코드 미리 생성 (pending)
+        analysis_rows = [
+            {"script_id": script_id, "analysis_type": t}
+            for t in ("logic", "terminology", "prerequisites")
+        ]
+        supabase.table("script_analyses").insert(analysis_rows).execute()
+
+        # 1단계 분석 background 실행
+        background_tasks.add_task(_run_structural_analysis, script_id, storage_path, file.content_type)
+
+        return _format_script(script)
+    
+    except Exception as e:
+        print(f"❌ 스크립트 업로드 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
 
 
 def _run_structural_analysis(script_id: str, storage_path: str, mime_type: str) -> None:
@@ -196,8 +227,14 @@ def _run_suggestions(script_id: str, script_text: str) -> None:
             "slides": report_result.get("slides", []),
             "overall_score": report_result.get("overall_score"),
         }, on_conflict="script_id").execute()
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"❌ 리포트 생성 실패 (상태 처리를 위해 빈 리포트 생성): {e}")
+        # 실패 시에도 상태가 '완료'로 넘어가도록 빈 리포트를 삽입
+        supabase.table("script_reports").upsert({
+            "script_id": script_id,
+            "slides": [],
+            "overall_score": 0,
+        }, on_conflict="script_id").execute()
 
 
 # ── 4.1.2 스크립트 목록 조회 ─────────────────────────────────────────────────
@@ -207,18 +244,22 @@ def list_scripts(
     week_number: int | None = None,
     current_user: dict = Depends(get_current_user),
 ):
-    q = (
-        supabase.table("scripts")
-        .select("*")
-        .eq("course_id", course_id)
-        .order("uploaded_at", desc=True)
-    )
-    if week_number is not None:
-        q = q.eq("week_number", week_number)
+    try:
+        q = (
+            supabase.table("scripts")
+            .select("*, script_reports(id)")
+            .eq("course_id", course_id)
+            .order("uploaded_at", desc=True)
+        )
+        if week_number is not None:
+            q = q.eq("week_number", week_number)
 
-    result = q.execute()
-    scripts = [_format_script(r) for r in (result.data or [])]
-    return {"scripts": scripts, "totalCount": len(scripts)}
+        result = q.execute()
+        scripts = [_format_script(r) for r in (result.data or [])]
+        return {"scripts": scripts, "totalCount": len(scripts)}
+    except Exception as e:
+        print(f"❌ 스크립트 목록 조회 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail="스크립트 목록을 불러오는 중 서버 오류가 발생했습니다.")
 
 
 # ── 스크립트 상세 조회 ────────────────────────────────────────────────────────
@@ -226,7 +267,7 @@ def list_scripts(
 def get_script(course_id: str, script_id: str, current_user: dict = Depends(get_current_user)):
     result = (
         supabase.table("scripts")
-        .select("*")
+        .select("*, script_reports(id)")
         .eq("id", script_id)
         .eq("course_id", course_id)
         .maybe_single()
@@ -238,6 +279,41 @@ def get_script(course_id: str, script_id: str, current_user: dict = Depends(get_
     script = _format_script(result.data)
     script["downloadUrl"] = get_signed_url(BUCKET_SCRIPTS, result.data["content_path"])
     return script
+
+
+# ── 스크립트 수정 (제목/주차) ───────────────────────────────────────────────────
+@router.put("/{script_id}")
+def update_script(
+    course_id: str,
+    script_id: str,
+    payload: dict,
+    current_user: dict = Depends(require_instructor),
+):
+    require_instructor_of(course_id, current_user["id"])
+
+    update_data = {}
+    if "title" in payload:
+        update_data["title"] = payload["title"]
+    if "weekNumber" in payload:
+        update_data["week_number"] = payload["weekNumber"]
+    if "scheduleId" in payload:
+        update_data["schedule_id"] = payload["scheduleId"]
+
+    if not update_data:
+        raise HTTPException(status_code=400, detail="수정할 데이터가 없습니다.")
+
+    result = (
+        supabase.table("scripts")
+        .update(update_data)
+        .eq("id", script_id)
+        .eq("course_id", course_id)
+        .maybe_single()
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="스크립트를 찾을 수 없습니다.")
+
+    return _format_script(result.data)
 
 
 # ── 스크립트 삭제 ─────────────────────────────────────────────────────────────

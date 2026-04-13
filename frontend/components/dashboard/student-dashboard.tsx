@@ -18,6 +18,10 @@ import {
   Play,
   Loader2,
   AlertCircle,
+  ArrowRight,
+  XCircle,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import {
   getStudentQuizHistory,
@@ -26,42 +30,74 @@ import {
   StudentMaterialItem,
 } from "@/lib/api";
 import { useAuth } from "@/contexts/auth-context";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { useCourse } from "@/contexts/course-context";
+import { CourseInfoBanner } from "@/components/layout/course-info-banner";
+
+// 날짜를 "N일 전", "오늘" 등으로 변환
+function relativeDate(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  if (days === 0) return "오늘";
+  if (days === 1) return "어제";
+  if (days < 7) return `${days}일 전`;
+  if (days < 30) return `${Math.floor(days / 7)}주 전`;
+  return new Date(dateStr).toLocaleDateString("ko-KR");
+}
 
 export function StudentDashboard() {
   const router = useRouter();
   const { user, isLoading: isAuthLoading } = useAuth();
+  const { selectedCourse } = useCourse();
   const [quizHistory, setQuizHistory] = useState<QuizSubmissionHistory[]>([]);
   const [materials, setMaterials] = useState<StudentMaterialItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showAllWrongAnswers, setShowAllWrongAnswers] = useState(false);
 
   useEffect(() => {
-    if (isAuthLoading || !user) return;
+    if (isAuthLoading) return;
+    if (!user) {
+      router.push("/login");
+      return;
+    }
+
+    if (!selectedCourse?.courseId) return;
 
     const loadData = async () => {
       setIsLoading(true);
       setError(null);
       try {
-        const [quizData, materialsData] = await Promise.all([
-          getStudentQuizHistory(),
-          getStudentMaterials(),
+        const [quizRes, materialsRes] = await Promise.allSettled([
+          getStudentQuizHistory(selectedCourse.courseId),
+          getStudentMaterials(selectedCourse.courseId),
         ]);
-        setQuizHistory(quizData.history || []);
-        setMaterials(materialsData.materials || []);
+
+        setQuizHistory(
+          quizRes.status === "fulfilled" ? quizRes.value.history || [] : [],
+        );
+        setMaterials(
+          materialsRes.status === "fulfilled"
+            ? materialsRes.value.materials || []
+            : [],
+        );
+
+        if (
+          quizRes.status === "rejected" ||
+          materialsRes.status === "rejected"
+        ) {
+          setError(
+            "일부 데이터를 불러오지 못했습니다. 백엔드 상태를 확인해주세요.",
+          );
+        }
       } catch (err) {
-        const message =
-          err instanceof Error
-            ? err.message
-            : "대시보드 데이터를 불러오지 못했습니다.";
-        setError(message);
-        setQuizHistory([]);
-        setMaterials([]);
+        setError("대시보드 데이터를 불러오는 중 오류가 발생했습니다.");
       } finally {
         setIsLoading(false);
       }
     };
     void loadData();
-  }, [isAuthLoading, user]);
+  }, [isAuthLoading, user, selectedCourse?.courseId]);
 
   // 계산된 통계
   const stats = useMemo(() => {
@@ -127,8 +163,35 @@ export function StudentDashboard() {
     }));
   }, [quizHistory]);
 
-  const studyMaterials = useMemo(() => {
-    return materials.slice(0, 3);
+  // 오답 복습 — 최근 퀴즈에서 틀린 문제 수집
+  const wrongAnswers = useMemo(() => {
+    return quizHistory
+      .slice(0, 5)
+      .flatMap((sub) =>
+        (sub.wrongAnswers || []).map((wa) => ({
+          ...wa,
+          submittedAt: sub.submittedAt,
+          quizScore: sub.score,
+        })),
+      )
+      .slice(0, 10);
+  }, [quizHistory]);
+
+  // 자료 타임라인 — 날짜 기준 그룹화
+  const materialsTimeline = useMemo(() => {
+    const sorted = [...materials].sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+
+    const groups = new Map<string, StudentMaterialItem[]>();
+    sorted.forEach((m) => {
+      const label = relativeDate(m.createdAt);
+      if (!groups.has(label)) groups.set(label, []);
+      groups.get(label)!.push(m);
+    });
+
+    return Array.from(groups.entries()).slice(0, 4); // 최대 4개 그룹
   }, [materials]);
 
   const courseProgress = useMemo(() => {
@@ -170,6 +233,16 @@ export function StudentDashboard() {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 p-4 pb-24">
+      <CourseInfoBanner />
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="size-4" />
+          <AlertTitle>오류 발생</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
       {/* 주요 액션 버튼 */}
       <div className="grid grid-cols-2 gap-3 sm:gap-4">
         <Card
@@ -215,6 +288,19 @@ export function StudentDashboard() {
       </div>
 
       {/* 주간 통계 */}
+      {selectedCourse?.courseId && (
+        <div className="flex justify-end">
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={() => router.push(`/courses/${selectedCourse.courseId}`)}
+          >
+            강의 상세 보기
+            <ArrowRight className="size-4" />
+          </Button>
+        </div>
+      )}
+
       <section>
         <h2 className="mb-3 text-sm font-semibold text-foreground">
           {"나의 학습 현황"}
@@ -224,7 +310,7 @@ export function StudentDashboard() {
             {weeklyStats.map((stat) => (
               <Card
                 key={stat.label}
-                className="min-w-35 shrink-0 border-border/40"
+                className="min-w-[140px] shrink-0 border-border/40"
               >
                 <CardContent className="flex items-center gap-3 p-4">
                   <div
@@ -293,6 +379,11 @@ export function StudentDashboard() {
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {`${quiz.correctCount}/${quiz.totalCount} 정답`}
+                        {quiz.wrongAnswerCount > 0 && (
+                          <span className="ml-2 text-red-500">
+                            {`오답 ${quiz.wrongAnswerCount}개`}
+                          </span>
+                        )}
                       </p>
                     </div>
                   </div>
@@ -325,59 +416,163 @@ export function StudentDashboard() {
         </div>
       </section>
 
-      {/* 최근 학습 자료 */}
+      {/* 오답 복습 */}
+      {wrongAnswers.length > 0 && (
+        <section>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-foreground">
+              {"오답 복습"}
+            </h2>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1 text-xs text-primary"
+              onClick={() => setShowAllWrongAnswers((v) => !v)}
+            >
+              {showAllWrongAnswers ? (
+                <>
+                  {"접기"}
+                  <ChevronUp className="size-3" />
+                </>
+              ) : (
+                <>
+                  {`전체 ${wrongAnswers.length}개`}
+                  <ChevronDown className="size-3" />
+                </>
+              )}
+            </Button>
+          </div>
+          <div className="flex flex-col gap-2">
+            {(showAllWrongAnswers ? wrongAnswers : wrongAnswers.slice(0, 3)).map(
+              (wa, idx) => (
+                <Card
+                  key={`${wa.questionId}-${idx}`}
+                  className="border-red-200/40 bg-red-50/30 dark:border-red-900/30 dark:bg-red-950/10"
+                >
+                  <CardContent className="p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-red-500/10">
+                        <XCircle className="size-4 text-red-500" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        {wa.content && (
+                          <p className="text-sm font-medium text-foreground line-clamp-2">
+                            {wa.content}
+                          </p>
+                        )}
+                        <div className="mt-2 flex flex-col gap-1">
+                          {wa.selectedOption && (
+                            <p className="text-xs text-red-500">
+                              {"내 답: "}
+                              <span className="font-medium">
+                                {wa.selectedOption}
+                              </span>
+                            </p>
+                          )}
+                          {wa.correctAnswer && (
+                            <p className="text-xs text-emerald-600">
+                              {"정답: "}
+                              <span className="font-medium">
+                                {wa.correctAnswer}
+                              </span>
+                            </p>
+                          )}
+                        </div>
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          {relativeDate(wa.submittedAt)}
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ),
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* 예습/복습 자료 타임라인 */}
       <section>
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-foreground">
-            {"새로운 학습 자료"}
+            {"학습 자료 타임라인"}
           </h2>
           <Button
             variant="ghost"
             size="sm"
             className="h-7 text-xs text-primary"
+            onClick={() => router.push("/materials")}
           >
             {"모두 보기"}
           </Button>
         </div>
-        <ScrollArea className="w-full">
-          <div className="flex gap-3 pb-2">
-            {studyMaterials.length > 0 ? (
-              studyMaterials.map((material) => (
-                <Card
-                  key={material.id}
-                  className="min-w-50 shrink-0 border-border/40"
-                >
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between">
-                      <Badge
-                        variant={
-                          material.type === "PREVIEW" ? "default" : "secondary"
-                        }
-                        className="text-xs"
-                      >
-                        {material.type === "PREVIEW" ? "예습" : "복습"}
-                      </Badge>
-                      <span className="flex size-2 rounded-full bg-primary" />
-                    </div>
-                    <p className="mt-3 text-sm font-medium text-foreground">
-                      {material.title}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {new Date(material.createdAt).toLocaleDateString("ko-KR")}
-                    </p>
-                  </CardContent>
-                </Card>
-              ))
-            ) : (
-              <Card className="min-w-50 shrink-0 border-border/40">
-                <CardContent className="p-4 text-center text-xs text-muted-foreground">
-                  {"새로운 자료가 없습니다."}
-                </CardContent>
-              </Card>
-            )}
+
+        {materialsTimeline.length > 0 ? (
+          <div className="relative flex flex-col gap-0 pl-4">
+            {/* 세로 타임라인 선 */}
+            <div className="absolute left-[7px] top-2 bottom-2 w-px bg-border/60" />
+            {materialsTimeline.map(([dateLabel, items], groupIdx) => (
+              <div key={dateLabel} className="relative mb-4 last:mb-0">
+                {/* 타임라인 점 */}
+                <div className="absolute -left-4 top-1 flex size-4 items-center justify-center">
+                  <div
+                    className={`size-2 rounded-full ${groupIdx === 0 ? "bg-primary" : "bg-border"}`}
+                  />
+                </div>
+                <p className="mb-2 text-xs font-semibold text-muted-foreground">
+                  {dateLabel}
+                </p>
+                <div className="flex flex-col gap-2">
+                  {items.map((material) => (
+                    <Card
+                      key={material.id}
+                      className="border-border/40"
+                    >
+                      <CardContent className="flex items-center gap-3 p-3">
+                        <div
+                          className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${
+                            material.type === "PREVIEW"
+                              ? "bg-blue-500/10"
+                              : "bg-violet-500/10"
+                          }`}
+                        >
+                          {material.type === "PREVIEW" ? (
+                            <Star
+                              className="size-4 text-blue-500"
+                            />
+                          ) : (
+                            <CheckCircle className="size-4 text-violet-500" />
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="truncate text-sm font-medium text-foreground">
+                            {material.title}
+                          </p>
+                        </div>
+                        <Badge
+                          variant={
+                            material.type === "PREVIEW"
+                              ? "default"
+                              : "secondary"
+                          }
+                          className="shrink-0 text-xs"
+                        >
+                          {material.type === "PREVIEW" ? "예습" : "복습"}
+                        </Badge>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
-          <ScrollBar orientation="horizontal" />
-        </ScrollArea>
+        ) : (
+          <Card className="border-border/40">
+            <CardContent className="p-4 text-center text-sm text-muted-foreground">
+              {"학습 자료가 없습니다."}
+            </CardContent>
+          </Card>
+        )}
       </section>
 
       {/* 과목별 진도 */}

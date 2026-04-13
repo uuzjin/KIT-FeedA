@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useAuth } from "@/contexts/auth-context";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +16,8 @@ import {
   Send,
   FileText,
   Users,
+  Share2,
+  Loader2,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -25,9 +28,9 @@ import {
 import {
   getNotices,
   getNoticeSettings,
-  Announcement,
   updateNoticeSettings,
-  type Notice,
+  publishAnnouncement,
+  type Announcement,
   type NoticeSettings,
 } from "@/lib/api";
 
@@ -75,12 +78,18 @@ const draftAnnouncements = [
 ];
 
 export function TeacherAnnouncements() {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState("published");
   const [notices, setNotices] = useState<Announcement[]>([]);
   const [settings, setSettings] = useState<NoticeSettings | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [publishingId, setPublishingId] = useState<string | null>(null);
+  const [publishedIds, setPublishedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
+    if (!user?.id) return;
     const load = async () => {
+      setError(null);
       try {
         const [noticesData, settingsData] = await Promise.all([
           getNotices(),
@@ -88,25 +97,49 @@ export function TeacherAnnouncements() {
         ]);
         setNotices(noticesData);
         setSettings(settingsData);
-      } catch {
-        // fallback to local demo data
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "데이터를 불러오지 못했습니다.",
+        );
       }
     };
     void load();
-  }, []);
+  }, [user?.id]);
+
+  const handlePublishToLms = async (courseId: string, announcementId: string) => {
+    setPublishingId(announcementId);
+    setError(null);
+    try {
+      await publishAnnouncement(courseId, announcementId);
+      setPublishedIds((prev) => new Set(prev).add(announcementId));
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "LMS 배포에 실패했습니다.",
+      );
+    } finally {
+      setPublishingId(null);
+    }
+  };
 
   const handleSaveSettings = async () => {
-    if (!settings) return;
+    if (!settings || !user?.id) return;
     try {
       const result = await updateNoticeSettings(settings);
       setSettings(result.settings);
-    } catch {
-      // keep silent in demo mode
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "설정 저장에 실패했습니다.",
+      );
     }
   };
 
   return (
     <div className="flex flex-col gap-5 p-4 pb-24">
+      {error && (
+        <div className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+          {error}
+        </div>
+      )}
       {/* 페이지 헤더 */}
       <div className="flex items-center justify-between">
         <div>
@@ -253,6 +286,34 @@ export function TeacherAnnouncements() {
                           <Users className="mr-2 size-4" />
                           {"읽은 학생 확인"}
                         </DropdownMenuItem>
+                        {typeof announcement.id === "string" && (
+                          <DropdownMenuItem
+                            disabled={
+                              publishingId === announcement.id ||
+                              publishedIds.has(announcement.id)
+                            }
+                            onClick={() => {
+                              const notice = notices.find(
+                                (n) => n.announcementId === announcement.id,
+                              );
+                              if (notice) {
+                                void handlePublishToLms(
+                                  notice.courseId,
+                                  notice.announcementId,
+                                );
+                              }
+                            }}
+                          >
+                            {publishingId === announcement.id ? (
+                              <Loader2 className="mr-2 size-4 animate-spin" />
+                            ) : (
+                              <Share2 className="mr-2 size-4" />
+                            )}
+                            {publishedIds.has(announcement.id)
+                              ? "LMS 배포 완료"
+                              : "LMS 배포"}
+                          </DropdownMenuItem>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
@@ -300,15 +361,20 @@ export function TeacherAnnouncements() {
                           </p>
                         </div>
                       </div>
-                      <div className="flex gap-2">
-                        <Button size="sm" variant="outline">
-                          {"수정"}
-                        </Button>
-                        <Button size="sm" className="gap-1">
-                          <Send className="size-3" />
-                          {"발행"}
-                        </Button>
-                      </div>
+                    </div>
+                    <div className="mt-4 flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="flex-1 gap-2"
+                      >
+                        <Edit className="size-4" />
+                        {"수정"}
+                      </Button>
+                      <Button size="sm" className="flex-1 gap-2">
+                        <Send className="size-4" />
+                        {"발행"}
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>

@@ -1,8 +1,48 @@
 import { supabase } from "@/lib/supabase/client";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ??
-  "https://backend-production-9c858.up.railway.app";
+const FALLBACK_API_BASE_URL = "https://backend-production-9c858.up.railway.app";
+
+function isLocalAddress(hostname: string) {
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "0.0.0.0"
+  );
+}
+
+function normalizeBaseUrl(url: string) {
+  return url.trim().replace(/\/+$/, "");
+}
+
+export function resolveApiBaseUrl() {
+  const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
+  if (!configured) {
+    return FALLBACK_API_BASE_URL;
+  }
+
+  try {
+    const parsed = new URL(configured);
+    if (typeof window !== "undefined") {
+      const currentHost = window.location.hostname;
+      const currentProtocol = window.location.protocol;
+      const runningInProductionLikeHost = !isLocalAddress(currentHost);
+      const configuredIsLocal = isLocalAddress(parsed.hostname);
+      const mixedContent =
+        currentProtocol === "https:" && parsed.protocol === "http:";
+
+      if (runningInProductionLikeHost && (configuredIsLocal || mixedContent)) {
+        return FALLBACK_API_BASE_URL;
+      }
+    }
+    return normalizeBaseUrl(parsed.toString());
+  } catch {
+    return FALLBACK_API_BASE_URL;
+  }
+}
+
+type RequestOptions = RequestInit & {
+  requiresAuth?: boolean;
+};
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
   const headers: Record<string, string> = {
@@ -24,17 +64,19 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
   return headers;
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: RequestOptions): Promise<T> {
+  const { requiresAuth = true, ...fetchInit } = init ?? {};
   const authHeaders = await getAuthHeaders();
+  const requestUrl = `${resolveApiBaseUrl()}${path}`;
 
   // Safely merge headers
   const mergedHeaders: Record<string, string> = {
     ...authHeaders,
-    ...(init?.headers as Record<string, string>),
+    ...(fetchInit.headers as Record<string, string>),
   };
 
-  if (init?.headers && typeof init.headers === "object") {
-    const headerObj = init.headers as Record<string, string>;
+  if (fetchInit.headers && typeof fetchInit.headers === "object") {
+    const headerObj = fetchInit.headers as Record<string, string>;
     Object.keys(headerObj).forEach((key) => {
       if (typeof headerObj[key] === "string") {
         mergedHeaders[key] = headerObj[key];
@@ -43,22 +85,41 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   // [디버깅] 프론트엔드 내부적으로는 토큰이 제대로 담겼는지 개발자 도구 콘솔에 출력
-  if (!mergedHeaders.Authorization) {
-    console.error("❌ [API Error] 인증 토큰이 없습니다. 다시 로그인 해주세요.");
-    throw new Error("인증 토큰이 없습니다. 다시 로그인 해주세요.");
+  if (requiresAuth && !mergedHeaders.Authorization) {
+    throw new Error("인증 토큰이 없습니다. 다시 로그인해주세요.");
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers: mergedHeaders,
-    credentials: "include", // 쿠키 기반 인증 및 세션 유지를 위해 추가
-  });
+  let response: Response;
+  try {
+    response = await fetch(requestUrl, {
+      ...fetchInit,
+      headers: mergedHeaders,
+      credentials: "include",
+    });
+  } catch {
+    throw new Error(
+      `API 서버에 연결할 수 없습니다. 요청 주소를 확인해주세요. (${requestUrl})`,
+    );
+  }
 
   if (!response.ok) {
     let backendMessage = `HTTP error! status: ${response.status}`;
     try {
-      const errorData = await response.json();
-      backendMessage = errorData.detail || errorData.message || backendMessage;
+      const errText = await response.text();
+      if (errText.trim()) {
+        const errorData = JSON.parse(errText) as {
+          detail?: string;
+          message?: string;
+        };
+        backendMessage =
+          (typeof errorData.detail === "string"
+            ? errorData.detail
+            : undefined) ||
+          (typeof errorData.message === "string"
+            ? errorData.message
+            : undefined) ||
+          backendMessage;
+      }
     } catch {
       // ignore parse error
     }
@@ -71,7 +132,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(backendMessage);
   }
 
-  return response.json() as Promise<T>;
+  const text = await response.text();
+  if (!text.trim()) {
+    return undefined as T;
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error("서버 응답을 해석할 수 없습니다.");
+  }
 }
 
 export type LoginResponse = {
@@ -113,36 +182,6 @@ export type NoticeSettings = {
   channels: string[];
   deadline_hours_before: number;
   quiz_notifications: boolean;
-};
-
-export type QuizLatest = {
-  title: string;
-  questions: number;
-  anonymous_enabled: boolean;
-  accuracy: number;
-  hard_questions: string[];
-};
-
-export type QuizGeneratePayload = {
-  topic: string;
-  difficulty: string;
-  question_count: number;
-};
-
-export type AudioConvertTask = {
-  task_id: string;
-  file_name: string;
-  status: "processing" | "completed";
-  progress: number;
-  transcript_preview: string | null;
-};
-
-export type AnalysisReport = {
-  source_file: string;
-  logical_gaps: number;
-  missing_terms: string[];
-  missing_prerequisites: string[];
-  suggestions: string[];
 };
 
 // Course types
@@ -222,20 +261,8 @@ export type StudentMaterialItem = {
   createdAt: string;
 };
 
-export async function login(payload: { email: string; password: string }) {
-  return request<LoginResponse>("/api/auth/login", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
-
-export async function getDashboardSummary() {
-  return request<DashboardSummary>("/api/dashboard/summary");
-}
-
 export async function getNotices(courseId?: string) {
   if (!courseId) {
-    // 사용자의 모든 강의 조회 후 공지 병합
     try {
       const coursesResponse = await request<{ courses: Course[] }>(
         "/api/courses",
@@ -256,7 +283,6 @@ export async function getNotices(courseId?: string) {
 
       return allAnnouncements;
     } catch {
-      // 강의 조회 실패 시 빈 배열 반환
       return [];
     }
   }
@@ -328,9 +354,10 @@ export async function updateCourse(
 export async function deleteCourse(
   courseId: string,
 ): Promise<{ message: string }> {
-  return request(`/api/courses/${courseId}`, {
+  await request<void>(`/api/courses/${courseId}`, {
     method: "DELETE",
   });
+  return { message: "삭제되었습니다." };
 }
 
 export async function getCourseSchedules(courseId: string): Promise<{
@@ -384,25 +411,45 @@ export async function deleteCourseSchedule(
   });
 }
 
+export type CourseEnrollment = {
+  userId: string;
+  name: string;
+  email: string;
+  joinedAt: string;
+};
+
 export async function getCourseStudents(
   courseId: string,
   page?: number,
   size?: number,
 ): Promise<{
-  students: Array<{
-    userId: string;
-    name: string;
-    email: string;
-    joinedAt: string;
-  }>;
+  students: CourseEnrollment[];
   totalCount: number;
 }> {
   const params = new URLSearchParams();
   if (page) params.append("page", page.toString());
   if (size) params.append("size", size.toString());
-  return request(
-    `/api/courses/${courseId}/students${params.toString() ? `?${params}` : ""}`,
+  const res = await request<{
+    students: Array<{
+      studentId: string;
+      name: string | null;
+      email: string | null;
+      joinMethod: string;
+      joinedAt: string;
+    }>;
+    totalCount: number;
+  }>(
+    `/api/courses/${courseId}/enrollments${params.toString() ? `?${params}` : ""}`,
   );
+  return {
+    students: (res.students ?? []).map((s) => ({
+      userId: s.studentId,
+      name: s.name ?? "",
+      email: s.email ?? "",
+      joinedAt: s.joinedAt,
+    })),
+    totalCount: res.totalCount ?? 0,
+  };
 }
 
 export async function addCourseStudents(
@@ -410,46 +457,58 @@ export async function addCourseStudents(
   payload: { file?: File; studentIds?: string[] },
 ): Promise<{
   addedCount: number;
+  notFoundEmails?: string[];
   errors: Array<{ row: number; reason: string }>;
 }> {
-  const formData = new FormData();
   if (payload.file) {
+    const formData = new FormData();
     formData.append("file", payload.file);
-  }
-  if (payload.studentIds) {
-    formData.append("studentIds", JSON.stringify(payload.studentIds));
+
+    const authHeaders = await getAuthHeaders();
+    const res = await fetch(
+      `${resolveApiBaseUrl()}/api/courses/${courseId}/enrollments/upload`,
+      {
+        method: "POST",
+        headers: {
+          ...(authHeaders.Authorization
+            ? { Authorization: authHeaders.Authorization }
+            : {}),
+        },
+        body: formData,
+      },
+    );
+    if (!res.ok) {
+      let message = `파일 등록 실패 (${res.status})`;
+      try {
+        const body = (await res.json()) as { detail?: string };
+        if (body?.detail) message = body.detail;
+      } catch { /* ignore */ }
+      throw new Error(message);
+    }
+    const data = (await res.json()) as {
+      enrolledCount: number;
+      notFoundEmails?: string[];
+    };
+    return {
+      addedCount: data.enrolledCount ?? 0,
+      notFoundEmails: data.notFoundEmails ?? [],
+      errors: [],
+    };
   }
 
-  const authHeaders = await getAuthHeaders();
-  const response = await fetch(
-    `${API_BASE_URL}/api/courses/${courseId}/students`,
+  if (!payload.studentIds?.length) {
+    throw new Error("추가할 학생 ID가 없습니다.");
+  }
+  const res = await request<{ message?: string; enrolledCount: number }>(
+    `/api/courses/${courseId}/enrollments`,
     {
       method: "POST",
-      headers: {
-        ...(authHeaders.Authorization
-          ? { Authorization: authHeaders.Authorization }
-          : {}),
-      },
-      body: formData,
+      body: JSON.stringify({ studentIds: payload.studentIds }),
     },
   );
-
-  if (!response.ok) {
-    let message = `학생 추가 실패 (${response.status})`;
-    try {
-      const body = (await response.json()) as { detail?: string };
-      if (body?.detail) {
-        message = body.detail;
-      }
-    } catch {
-      // ignore parse error
-    }
-    throw new Error(message);
-  }
-
-  return (await response.json()) as {
-    addedCount: number;
-    errors: Array<{ row: number; reason: string }>;
+  return {
+    addedCount: res.enrolledCount ?? 0,
+    errors: [],
   };
 }
 
@@ -457,26 +516,55 @@ export async function removeCourseStudent(
   courseId: string,
   studentId: string,
 ): Promise<{ message: string }> {
-  return request(`/api/courses/${courseId}/students/${studentId}`, {
+  await request<void>(`/api/courses/${courseId}/enrollments/${studentId}`, {
     method: "DELETE",
+  });
+  return { message: "삭제되었습니다." };
+}
+
+export type CourseInviteResponse = {
+  courseId: string;
+  inviteToken: string;
+  inviteLink: string;
+  expiresAt: string;
+  createdAt: string;
+};
+
+export type CourseInvitePreview = {
+  courseId: string;
+  courseName: string;
+  description: string | null;
+  instructorName: string;
+  expiresAt: string | null;
+  isExpired: boolean;
+};
+
+export async function getInvitePreview(
+  token: string,
+): Promise<CourseInvitePreview> {
+  return request<CourseInvitePreview>(`/api/courses/invites/${token}`, {
+    method: "GET",
+    requiresAuth: false,
   });
 }
 
 export async function createCourseInvite(
   courseId: string,
   payload?: { expiresAt?: string },
-): Promise<{ inviteToken: string; inviteLink: string; expiresAt: string }> {
-  return request(`/api/courses/${courseId}/invites`, {
+): Promise<CourseInviteResponse> {
+  return request<CourseInviteResponse>(`/api/courses/${courseId}/invites`, {
     method: "POST",
-    body: JSON.stringify(payload),
+    body: JSON.stringify(payload ?? {}),
   });
 }
 
-export async function acceptCourseInvite(
-  courseId: string,
-  token: string,
-): Promise<{ courseId: string; courseName: string; joinedAt: string }> {
-  return request(`/api/courses/${courseId}/invites/${token}/accept`, {
+export async function joinCourseByInviteToken(token: string): Promise<{
+  courseId: string;
+  message: string;
+  courseName?: string;
+  joinedAt?: string;
+}> {
+  return request(`/api/courses/join`, {
     method: "POST",
     body: JSON.stringify({ token }),
   });
@@ -492,25 +580,26 @@ export type LmsSyncRecord = {
 
 export async function getLmsSyncHistory(courseId: string) {
   return request<{ syncs: LmsSyncRecord[]; totalCount: number }>(
-    `/api/courses/${courseId}/lms-syncs`
+    `/api/courses/${courseId}/lms-syncs`,
   );
 }
 
 export async function syncLmsStudents(
   courseId: string,
-  payload: { lmsType: string; lmsCourseId: string; syncStudents?: boolean }
+  payload: { lmsType: string; lmsCourseId: string; syncStudents?: boolean },
 ) {
-  return request<{ syncId: string | null; syncedStudents: number; lastSyncAt: string }>(
-    `/api/courses/${courseId}/lms-syncs`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        lmsType: payload.lmsType,
-        lmsCourseId: payload.lmsCourseId,
-        syncStudents: payload.syncStudents ?? true,
-      }),
-    }
-  );
+  return request<{
+    syncId: string | null;
+    syncedStudents: number;
+    lastSyncAt: string;
+  }>(`/api/courses/${courseId}/lms-syncs`, {
+    method: "POST",
+    body: JSON.stringify({
+      lmsType: payload.lmsType,
+      lmsCourseId: payload.lmsCourseId,
+      syncStudents: payload.syncStudents ?? true,
+    }),
+  });
 }
 
 export async function getNoticeSettings() {
@@ -521,51 +610,99 @@ export async function updateNoticeSettings(payload: NoticeSettings) {
   return request<{ message: string; settings: NoticeSettings }>(
     "/api/notices/settings",
     {
-      method: "POST",
+      method: "PUT",
       body: JSON.stringify(payload),
     },
   );
 }
 
-export async function getLatestQuiz() {
-  return request<QuizLatest>("/api/quiz/latest");
+// Audio — course-scoped
+export type AudioItem = {
+  audioId: string;
+  courseId: string;
+  fileName: string;
+  status: string; // PENDING | PROCESSING | COMPLETED | FAILED
+  transcriptPreview: string | null;
+  createdAt: string;
+};
+
+export async function listAudios(courseId: string): Promise<{ audios: AudioItem[]; totalCount: number }> {
+  const res = await request<any>(`/api/courses/${courseId}/audios`);
+  const audios = (res.audios ?? []).map((a: any) => ({
+    audioId: a.audioId,
+    courseId,
+    fileName: a.fileName,
+    status: a.status,
+    transcriptPreview: a.transcript ?? null,
+    createdAt: a.uploadedAt,
+  }));
+  return { audios, totalCount: res.totalCount ?? audios.length };
 }
 
-export async function generateQuiz(payload: QuizGeneratePayload) {
-  return request<{ message: string; quiz: QuizLatest; difficulty: string }>(
-    "/api/quiz/generate",
+export async function getAudio(courseId: string, audioId: string): Promise<AudioItem> {
+  const res = await request<any>(`/api/courses/${courseId}/audios/${audioId}`);
+  return {
+    audioId: res.audioId,
+    courseId: courseId,
+    fileName: res.fileName,
+    status: res.status,
+    transcriptPreview: res.transcript ? res.transcript.substring(0, 200) : null,
+    createdAt: res.uploadedAt,
+  };
+}
+
+export async function uploadAudio(
+  courseId: string,
+  file: File,
+  scheduleId?: string,
+): Promise<{ audioId: string; status: string; fileName: string; transcriptPreview?: string }> {
+  const formData = new FormData();
+  formData.append("file", file);
+  if (scheduleId) {
+    formData.append("schedule_id", scheduleId);
+  }
+
+  const authHeaders = await getAuthHeaders();
+  const response = await fetch(
+    `${resolveApiBaseUrl()}/api/courses/${courseId}/audios`,
     {
       method: "POST",
-      body: JSON.stringify(payload),
+      headers: {
+        ...(authHeaders.Authorization
+          ? { Authorization: authHeaders.Authorization }
+          : {}),
+      },
+      body: formData,
     },
   );
+
+  if (!response.ok) {
+    let message = `오디오 업로드 실패 (${response.status})`;
+    try {
+      const body = (await response.json()) as { detail?: string };
+      if (body?.detail) message = body.detail;
+    } catch { /* ignore */ }
+    throw new Error(message);
+  }
+
+  const data = await response.json();
+  return {
+    audioId: data.audioId,
+    status: data.status,
+    fileName: data.fileName,
+  };
 }
 
-export async function createAudioConvertTask(payload: {
-  file_name: string;
-  estimated_minutes?: number;
-}) {
-  return request<AudioConvertTask>("/api/materials/audio-convert", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
-
-export async function getAudioConvertTask(taskId: string) {
-  return request<AudioConvertTask>(`/api/materials/audio-convert/${taskId}`);
-}
-
-export async function getAnalysisReport() {
-  // 과거 UI 프로토타입용 모의(Mock) API 함수입니다.
-  // 백엔드에 해당 엔드포인트가 없어 발생하는 404 에러를 방지하기 위해 더미 데이터를 반환합니다.
-  // TODO: 이후 teacher-materials.tsx 컴포넌트를 수정하여 실제 API인 getScriptAnalysis()를 사용해야 합니다.
-  return Promise.resolve<AnalysisReport>({
-    source_file: "대기 중인 파일",
-    logical_gaps: 0,
-    missing_terms: [],
-    missing_prerequisites: [],
-    suggestions: ["백엔드 실제 API 연동이 필요합니다."],
-  });
+export async function getAudioConvertTask(courseId: string, audioId: string) {
+  const res = await request<any>(`/api/courses/${courseId}/audios/${audioId}`);
+  return {
+    audioId: res.audioId,
+    status: res.status,
+    transcript: res.transcript,
+    transcriptPreview: res.transcript ? res.transcript.substring(0, 200) : null,
+    completedAt: res.transcriptCompletedAt,
+    fileName: res.fileName,
+  };
 }
 
 // User Profile APIs
@@ -577,43 +714,49 @@ export async function updateUserProfile(
   userId: string,
   payload: UpdateProfilePayload,
 ): Promise<UserProfile> {
-  const formData = new FormData();
+  // 1. Update text fields via JSON PUT
+  const textPayload: Record<string, string> = {};
+  if (payload.name) textPayload.name = payload.name;
+  if (payload.title !== undefined) textPayload.title = payload.title ?? "";
 
-  if (payload.name) {
-    formData.append("name", payload.name);
-  }
-  if (payload.title) {
-    formData.append("title", payload.title);
-  }
-  if (payload.profileImage) {
-    formData.append("profileImage", payload.profileImage);
-  }
-
-  const authHeaders = await getAuthHeaders();
-  const response = await fetch(`${API_BASE_URL}/api/users/${userId}/profile`, {
+  let profile = await request<UserProfile>(`/api/users/${userId}/profile`, {
     method: "PUT",
-    headers: {
-      ...(authHeaders.Authorization
-        ? { Authorization: authHeaders.Authorization }
-        : {}),
-    },
-    body: formData,
+    body: JSON.stringify(textPayload),
   });
 
-  if (!response.ok) {
-    let message = `프로필 수정 실패 (${response.status})`;
-    try {
-      const body = (await response.json()) as { detail?: string };
-      if (body?.detail) {
-        message = body.detail;
-      }
-    } catch {
-      // ignore parse error
+  // 2. If an image is provided, upload it separately and merge the result
+  if (payload.profileImage) {
+    const formData = new FormData();
+    formData.append("file", payload.profileImage);
+
+    const authHeaders = await getAuthHeaders();
+    const imgRes = await fetch(
+      `${resolveApiBaseUrl()}/api/users/${userId}/profile/image`,
+      {
+        method: "POST",
+        headers: {
+          ...(authHeaders.Authorization
+            ? { Authorization: authHeaders.Authorization }
+            : {}),
+        },
+        body: formData,
+      },
+    );
+
+    if (!imgRes.ok) {
+      let message = `프로필 이미지 업로드 실패 (${imgRes.status})`;
+      try {
+        const body = (await imgRes.json()) as { detail?: string };
+        if (body?.detail) message = body.detail;
+      } catch { /* ignore */ }
+      throw new Error(message);
     }
-    throw new Error(message);
+
+    const imgData = (await imgRes.json()) as { profileImageUrl: string };
+    profile = { ...profile, profileImageUrl: imgData.profileImageUrl };
   }
 
-  return (await response.json()) as UserProfile;
+  return profile;
 }
 
 export async function deleteUserAccount(
@@ -631,7 +774,7 @@ export async function getStudentQuizHistory(courseId?: string): Promise<{
 }> {
   const params = new URLSearchParams();
   if (courseId) {
-    params.append("courseId", courseId);
+    params.append("course_id", courseId);
   }
   return request<{
     history: QuizSubmissionHistory[];
@@ -647,7 +790,7 @@ export async function getStudentMaterials(courseId?: string): Promise<{
 }> {
   const params = new URLSearchParams();
   if (courseId) {
-    params.append("courseId", courseId);
+    params.append("course_id", courseId);
   }
   return request<{
     materials: StudentMaterialItem[];
@@ -666,7 +809,7 @@ export async function getInstructorComprehensionTrends(
 }> {
   const params = new URLSearchParams();
   if (courseId) {
-    params.append("courseId", courseId);
+    params.append("course_id", courseId);
   }
   return request<{
     trends: ComprehensionTrendItem[];
@@ -681,7 +824,7 @@ export async function getInstructorWeakTopics(courseId?: string): Promise<{
 }> {
   const params = new URLSearchParams();
   if (courseId) {
-    params.append("courseId", courseId);
+    params.append("course_id", courseId);
   }
   return request<{
     weakTopics: WeakTopicItem[];
@@ -696,7 +839,7 @@ export async function getInstructorUploadStatus(courseId?: string): Promise<{
 }> {
   const params = new URLSearchParams();
   if (courseId) {
-    params.append("courseId", courseId);
+    params.append("course_id", courseId);
   }
   return request<{
     uploadStatus: UploadStatusItem[];
@@ -741,14 +884,12 @@ export type QuizSubmission = {
 };
 
 export type ComprehensionReport = {
-  quizId: string;
-  comprehensionLevel: "GOOD" | "PARTIAL" | "INSUFFICIENT";
-  averageScore: number;
-  participationRate: number;
-  questionAnalysis: Array<{
-    questionId: string;
-    correctRate: number;
-    difficulty: string;
+  overallRate: number;
+  level: "GOOD" | "PARTIAL" | "LOW";
+  topicBreakdown: Array<{
+    topic: string;
+    rate: number;
+    level: "GOOD" | "PARTIAL" | "LOW";
   }>;
 };
 
@@ -871,9 +1012,10 @@ export type CourseScriptListItem = {
   weekNumber?: number | null;
   uploadedAt: string;
   downloadUrl?: string;
+  status?: string;
 };
 
-// Script Types (분석 상세 등 — 별도 엔드포인트)
+// Script Types
 export type ScriptAnalysis = {
   scriptId: string;
   fileName: string;
@@ -889,27 +1031,44 @@ export type ScriptAnalysis = {
   createdAt: string;
 };
 
+export type UploadScriptResponse = {
+  scriptId: string;
+  status: string;
+  message: string;
+  title: string;
+  fileName: string;
+  scheduleId?: string;
+  weekNumber?: number;
+  uploadedAt: string;
+};
+
 // Script APIs
 export async function uploadScript(
   courseId: string,
   payload: {
     file: File;
+    title: string;
     weekNumber?: number;
     topic?: string;
+    scheduleId?: string;
   },
-): Promise<{ scriptId: string; status: string; message: string }> {
+): Promise<UploadScriptResponse> {
   const formData = new FormData();
   formData.append("file", payload.file);
+  formData.append("title", payload.title);
   if (payload.weekNumber) {
-    formData.append("weekNumber", payload.weekNumber.toString());
+    formData.append("week_number", payload.weekNumber.toString());
   }
   if (payload.topic) {
     formData.append("topic", payload.topic);
   }
+  if (payload.scheduleId) {
+    formData.append("schedule_id", payload.scheduleId);
+  }
 
   const authHeaders = await getAuthHeaders();
   const response = await fetch(
-    `${API_BASE_URL}/api/courses/${courseId}/scripts`,
+    `${resolveApiBaseUrl()}/api/courses/${courseId}/scripts`,
     {
       method: "POST",
       headers: {
@@ -925,25 +1084,28 @@ export async function uploadScript(
     let message = `스크립트 업로드 실패 (${response.status})`;
     try {
       const body = (await response.json()) as { detail?: string };
-      if (body?.detail) {
-        message = body.detail;
-      }
-    } catch {
-      // ignore parse error
-    }
+      if (body?.detail) message = body.detail;
+    } catch { /* ignore */ }
     throw new Error(message);
   }
 
-  return (await response.json()) as {
-    scriptId: string;
-    status: string;
-    message: string;
-  };
+  return (await response.json()) as UploadScriptResponse;
+}
+
+export async function updateScript(
+  courseId: string,
+  scriptId: string,
+  payload: { title?: string; weekNumber?: number; scheduleId?: string | null },
+): Promise<CourseScriptListItem> {
+  return request(`/api/courses/${courseId}/scripts/${scriptId}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function getCourseScripts(
   courseId: string,
-): Promise<{ scripts: ScriptAnalysis[] }> {
+): Promise<{ scripts: CourseScriptListItem[] }> {
   return request(`/api/courses/${courseId}/scripts`);
 }
 
@@ -951,7 +1113,7 @@ export async function getScriptAnalysis(
   courseId: string,
   scriptId: string,
 ): Promise<ScriptAnalysis> {
-  return request(`/api/courses/${courseId}/scripts/${scriptId}`);
+  return request(`/api/courses/${courseId}/scripts/${scriptId}/analysis`);
 }
 
 // Materials Types
@@ -981,32 +1143,98 @@ export async function getCourseMaterials(
   );
 }
 
-export async function createPreviewGuide(
+// Content Generation Types
+export type PreviewGuide = {
+  previewGuideId: string;
+  courseId: string;
+  scheduleId: string;
+  title: string;
+  status: "generating" | "completed" | "failed";
+  keyConcepts: string[];
+  readingMaterials?: unknown;
+  summary?: string;
+  errorMessage?: string;
+  createdAt: string;
+  completedAt?: string;
+};
+
+export type ReviewSummary = {
+  reviewSummaryId: string;
+  courseId: string;
+  scheduleId: string;
+  title: string;
+  status: "generating" | "completed" | "failed";
+  content?: string;
+  keyPoints: string[];
+  errorMessage?: string;
+  createdAt: string;
+  completedAt?: string;
+};
+
+// GET /api/courses/{courseId}/schedules/{scheduleId}/preview-guides
+export async function getPreviewGuide(
   courseId: string,
-  payload: {
-    scheduleId: string;
-    title: string;
-    content?: string;
-  },
-): Promise<Material> {
-  return request(`/api/courses/${courseId}/materials/preview`, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  scheduleId: string,
+): Promise<PreviewGuide> {
+  return request(
+    `/api/courses/${courseId}/schedules/${scheduleId}/preview-guides`,
+  );
 }
 
+// POST /api/courses/{courseId}/schedules/{scheduleId}/preview-guides → 202
+export async function createPreviewGuide(
+  courseId: string,
+  scheduleId: string,
+): Promise<{ previewGuideId: string; scheduleId: string; status: string; message: string }> {
+  return request(
+    `/api/courses/${courseId}/schedules/${scheduleId}/preview-guides`,
+    { method: "POST" },
+  );
+}
+
+// GET /api/courses/{courseId}/schedules/{scheduleId}/review-summaries
+export async function getReviewSummary(
+  courseId: string,
+  scheduleId: string,
+): Promise<ReviewSummary> {
+  return request(
+    `/api/courses/${courseId}/schedules/${scheduleId}/review-summaries`,
+  );
+}
+
+// POST /api/courses/{courseId}/schedules/{scheduleId}/review-summaries → 202
 export async function createReviewSummary(
   courseId: string,
-  payload: {
-    scheduleId: string;
-    title: string;
-    content?: string;
-  },
-): Promise<Material> {
-  return request(`/api/courses/${courseId}/materials/review`, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  scheduleId: string,
+): Promise<{ reviewSummaryId: string; scheduleId: string; status: string; message: string }> {
+  return request(
+    `/api/courses/${courseId}/schedules/${scheduleId}/review-summaries`,
+    { method: "POST" },
+  );
+}
+
+export async function generatePreviewGuide(
+  courseId: string,
+  scheduleId: string,
+): Promise<any> {
+  return request(
+    `/api/courses/${courseId}/schedules/${scheduleId}/preview-guides`,
+    {
+      method: "POST",
+    },
+  );
+}
+
+export async function generateReviewSummary(
+  courseId: string,
+  scheduleId: string,
+): Promise<any> {
+  return request(
+    `/api/courses/${courseId}/schedules/${scheduleId}/review-summaries`,
+    {
+      method: "POST",
+    },
+  );
 }
 
 export async function uploadMaterial(
@@ -1026,7 +1254,7 @@ export async function uploadMaterial(
 
   const authHeaders = await getAuthHeaders();
   const response = await fetch(
-    `${API_BASE_URL}/api/courses/${courseId}/materials`,
+    `${resolveApiBaseUrl()}/api/courses/${courseId}/materials`,
     {
       method: "POST",
       headers: {
@@ -1042,12 +1270,8 @@ export async function uploadMaterial(
     let message = `자료 업로드 실패 (${response.status})`;
     try {
       const body = (await response.json()) as { detail?: string };
-      if (body?.detail) {
-        message = body.detail;
-      }
-    } catch {
-      // ignore parse error
-    }
+      if (body?.detail) message = body.detail;
+    } catch { /* ignore */ }
     throw new Error(message);
   }
 
@@ -1077,7 +1301,7 @@ export type Notification = {
 
 export type NotificationPreferences = {
   userId: string;
-  channels: string[]; // email, push, sms, etc
+  channels: string[];
   quizNotifications: boolean;
   materialNotifications: boolean;
   deadlineNotifications: boolean;
@@ -1235,5 +1459,259 @@ export async function publishAnnouncement(
     {
       method: "POST",
     },
+  );
+}
+
+// ── 수업 사후 분석 (Post-Analysis) ────────────────────────────────────────────
+
+export type PostAnalysisItem = {
+  id: string;
+  analysisType: "structure" | "concepts";
+  status: "pending" | "processing" | "completed" | "failed";
+  result: {
+    // structure 결과
+    structure_map?: Array<{
+      phase: string;
+      description: string;
+      strength: string;
+      weakness: string | null;
+    }>;
+    flow_score?: number;
+    overall_comment?: string;
+    // concepts 결과
+    covered_concepts?: Array<{
+      concept: string;
+      coverage: "충분" | "부족" | "누락";
+      note: string;
+    }>;
+    missing_concepts?: string[];
+    coverage_score?: number;
+  } | null;
+  errorMessage?: string;
+  startedAt?: string;
+  completedAt?: string;
+};
+
+export async function getPostAnalyses(
+  courseId: string,
+  scriptId: string,
+): Promise<{ scriptId: string; postAnalyses: PostAnalysisItem[] }> {
+  return request(
+    `/api/courses/${courseId}/scripts/${scriptId}/post-analyses`,
+  );
+}
+
+export async function triggerStructureAnalysis(
+  courseId: string,
+  scriptId: string,
+): Promise<{ scriptId: string; analysisType: string; status: string; message: string }> {
+  return request(
+    `/api/courses/${courseId}/scripts/${scriptId}/post-analyses/structure`,
+    { method: "POST" },
+  );
+}
+
+export async function triggerConceptsAnalysis(
+  courseId: string,
+  scriptId: string,
+): Promise<{ scriptId: string; analysisType: string; status: string; message: string }> {
+  return request(
+    `/api/courses/${courseId}/scripts/${scriptId}/post-analyses/concepts`,
+    { method: "POST" },
+  );
+}
+
+// ── AI 학생 시뮬레이션 ────────────────────────────────────────────────────────
+
+export type AiSimContext = {
+  contextId: string;
+  scriptIds: string[];
+  loadedDocuments: number;
+  totalTokens: number;
+  model: string;
+  createdAt: string;
+};
+
+export type AiSimAssessment = {
+  assessmentId: string;
+  contextId: string;
+  status: "pending" | "processing" | "completed" | "failed";
+  questionTypes: string[];
+  count: number;
+  questions: Array<{
+    type: string;
+    question: string;
+    answer?: string;
+    options?: string[];
+  }>;
+  errorMessage?: string;
+  completedAt?: string;
+};
+
+export type AiSimAnswers = {
+  answerId: string;
+  assessmentId: string;
+  simulationId: string;
+  status: "pending" | "processing" | "completed" | "failed";
+  answers: Array<{
+    questionIndex: number;
+    answer: string;
+    reasoning?: string;
+  }>;
+  errorMessage?: string;
+  completedAt?: string;
+};
+
+export type AiSimGrades = {
+  gradeId: string;
+  assessmentId: string;
+  status: "pending" | "processing" | "completed" | "failed";
+  totalScore: number;
+  grades: Array<{
+    questionIndex: number;
+    score: number;
+    feedback: string;
+    isCorrect?: boolean;
+  }>;
+  strengths: string[];
+  weaknesses: string[];
+  errorMessage?: string;
+  completedAt?: string;
+};
+
+export type AiSimQualityReport = {
+  reportId: string;
+  assessmentId: string;
+  status: "pending" | "processing" | "completed" | "failed";
+  coverageRate: number;
+  sufficientTopics: string[];
+  insufficientTopics: Array<{ topic: string; reason: string }>;
+  errorMessage?: string;
+  completedAt?: string;
+};
+
+export type AiSimQaPairs = {
+  qaPairId: string;
+  assessmentId: string;
+  status: "pending" | "processing" | "completed" | "failed";
+  qaPairs: Array<{ question: string; answer: string }>;
+  errorMessage?: string;
+  completedAt?: string;
+};
+
+export async function createAiSimContext(
+  courseId: string,
+  payload: { scriptIds: string[]; model?: string },
+): Promise<AiSimContext> {
+  return request(`/api/courses/${courseId}/ai-student/contexts`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function createAiSimSimulation(
+  courseId: string,
+  payload: { contextId: string },
+): Promise<{ simulationId: string; contextId: string; status: string; knowledgeScope: string; createdAt: string }> {
+  return request(`/api/courses/${courseId}/ai-student/simulations`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function createAiSimAssessment(
+  courseId: string,
+  payload: { contextId: string; questionTypes?: string[]; count?: number },
+): Promise<{ assessmentId: string; status: string; message: string }> {
+  return request(`/api/courses/${courseId}/ai-student/assessments`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getAiSimAssessment(
+  courseId: string,
+  assessmentId: string,
+): Promise<AiSimAssessment> {
+  return request(
+    `/api/courses/${courseId}/ai-student/assessments/${assessmentId}`,
+  );
+}
+
+export async function createAiSimAnswers(
+  courseId: string,
+  assessmentId: string,
+  payload: { simulationId: string },
+): Promise<{ answerId: string; status: string; message: string }> {
+  return request(
+    `/api/courses/${courseId}/ai-student/assessments/${assessmentId}/answers`,
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+}
+
+export async function getAiSimAnswers(
+  courseId: string,
+  assessmentId: string,
+): Promise<AiSimAnswers> {
+  return request(
+    `/api/courses/${courseId}/ai-student/assessments/${assessmentId}/answers`,
+  );
+}
+
+export async function createAiSimGrades(
+  courseId: string,
+  assessmentId: string,
+): Promise<{ gradeId: string; status: string; message: string }> {
+  return request(
+    `/api/courses/${courseId}/ai-student/assessments/${assessmentId}/grades`,
+    { method: "POST" },
+  );
+}
+
+export async function getAiSimGrades(
+  courseId: string,
+  assessmentId: string,
+): Promise<AiSimGrades> {
+  return request(
+    `/api/courses/${courseId}/ai-student/assessments/${assessmentId}/grades`,
+  );
+}
+
+export async function createAiSimQualityReport(
+  courseId: string,
+  assessmentId: string,
+): Promise<{ reportId: string; status: string; message: string }> {
+  return request(
+    `/api/courses/${courseId}/ai-student/assessments/${assessmentId}/quality-reports`,
+    { method: "POST" },
+  );
+}
+
+export async function getAiSimQualityReport(
+  courseId: string,
+  assessmentId: string,
+): Promise<AiSimQualityReport> {
+  return request(
+    `/api/courses/${courseId}/ai-student/assessments/${assessmentId}/quality-reports`,
+  );
+}
+
+export async function createAiSimQaPairs(
+  courseId: string,
+  assessmentId: string,
+  payload: { simulationId: string },
+): Promise<{ qaPairId: string; status: string; message: string }> {
+  return request(
+    `/api/courses/${courseId}/ai-student/assessments/${assessmentId}/qa-pairs`,
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+}
+
+export async function getAiSimQaPairs(
+  courseId: string,
+  assessmentId: string,
+): Promise<AiSimQaPairs> {
+  return request(
+    `/api/courses/${courseId}/ai-student/assessments/${assessmentId}/qa-pairs`,
   );
 }
