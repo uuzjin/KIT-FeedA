@@ -1,9 +1,8 @@
-# 중복 제거
-fastapi
-uvicorn[standard]
-pydantic
-pydantic-settings
-supabase
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+pydantic>=2.0
+pydantic-settings>=2.0
+supabase>=2.0.0
 python-dotenv
 python-jose[cryptography]  
 python-multipart
