@@ -61,7 +61,10 @@ class Settings(BaseSettings):
             "http://127.0.0.1:3000",
         ]
 
-    model_config = {"env_file": ("../.env", ".env"), "extra": "ignore"}
+    model_config = {
+        "env_file": (".env", "../.env", "backend/.env"),
+        "extra": "ignore",
+    }
 
 
 settings = Settings()

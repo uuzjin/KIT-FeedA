@@ -1,4 +1,5 @@
 from collections import defaultdict
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -290,3 +291,185 @@ def get_student_materials(
 
     materials.sort(key=lambda x: x["createdAt"] or "", reverse=True)
     return {"materials": materials, "totalCount": len(materials)}
+
+
+# ── 대시보드 스냅샷 수동 새로고침 ────────────────────────────────────────────
+@router.post("/refresh/{course_id}")
+def refresh_dashboard_snapshot(
+    course_id: str,
+    current_user: dict = Depends(require_instructor),
+):
+    """강의 대시보드 스냅샷을 실제 데이터로 즉시 재구성합니다."""
+    user_id = current_user["id"]
+
+    # 해당 강의에 대한 접근 권한 확인
+    instructor_courses = _get_course_ids_for_instructor(user_id)
+    if course_id not in instructor_courses:
+        raise HTTPException(status_code=403, detail="해당 강의에 대한 권한이 없습니다.")
+
+    # ① 과목의 모든 퀴즈 (schedule_id → quiz_id 매핑)
+    quiz_rows = (
+        supabase.table("quizzes")
+        .select("id, schedule_id")
+        .eq("course_id", course_id)
+        .execute()
+    ).data or []
+    quiz_ids = [q["id"] for q in quiz_rows]
+    schedule_to_quiz_id: dict[str, str] = {
+        q["schedule_id"]: q["id"]
+        for q in quiz_rows
+        if q.get("schedule_id")
+    }
+
+    # ② 해당 과목 퀴즈의 전체 제출 일괄 조회
+    submissions_by_quiz: dict[str, list[float]] = {}
+    if quiz_ids:
+        for sub in (
+            supabase.table("quiz_submissions")
+            .select("quiz_id, score")
+            .in_("quiz_id", quiz_ids)
+            .execute()
+        ).data or []:
+            submissions_by_quiz.setdefault(sub["quiz_id"], []).append(sub["score"])
+
+    # ③ 스케줄 목록
+    schedules = (
+        supabase.table("course_schedules")
+        .select("id, week_number, topic")
+        .eq("course_id", course_id)
+        .order("week_number")
+        .execute()
+    ).data or []
+
+    # ④ 수강생 수
+    enrolled_count = (
+        supabase.table("course_enrollments")
+        .select("id", count="exact")
+        .eq("course_id", course_id)
+        .execute()
+    ).count or 0
+
+    # ⑤ 스크립트 업로드 현황
+    script_rows = (
+        supabase.table("scripts")
+        .select("schedule_id, week_number")
+        .eq("course_id", course_id)
+        .execute()
+    ).data or []
+    script_schedule_ids = {s["schedule_id"] for s in script_rows if s.get("schedule_id")}
+    script_week_numbers = {s["week_number"] for s in script_rows if s.get("week_number")}
+
+    # ⑥ 예습 가이드 완료 현황
+    preview_done_ids = {
+        p["schedule_id"]
+        for p in (
+            supabase.table("preview_guides")
+            .select("schedule_id")
+            .eq("course_id", course_id)
+            .eq("status", "completed")
+            .execute()
+        ).data or []
+        if p.get("schedule_id")
+    }
+
+    # ⑦ 복습 요약 완료 현황
+    review_done_ids = {
+        r["schedule_id"]
+        for r in (
+            supabase.table("review_summaries")
+            .select("schedule_id")
+            .eq("course_id", course_id)
+            .eq("status", "completed")
+            .execute()
+        ).data or []
+        if r.get("schedule_id")
+    }
+
+    # ⑧ 실제 오답률 기반 취약 토픽 계산
+    weak_topics: list[dict] = []
+    if quiz_ids:
+        questions = (
+            supabase.table("quiz_questions")
+            .select("id, content, quiz_id")
+            .in_("quiz_id", quiz_ids)
+            .execute()
+        ).data or []
+
+        total_subs_all = sum(len(v) for v in submissions_by_quiz.values())
+
+        if questions and total_subs_all:
+            q_ids = [q["id"] for q in questions]
+            wrong_counts: dict[str, int] = {}
+            total_by_q: dict[str, int] = {}
+
+            answers = (
+                supabase.table("quiz_submission_answers")
+                .select("question_id, is_correct")
+                .in_("question_id", q_ids)
+                .execute()
+            ).data or []
+
+            for ans in answers:
+                qid = ans["question_id"]
+                total_by_q[qid] = total_by_q.get(qid, 0) + 1
+                if not ans["is_correct"]:
+                    wrong_counts[qid] = wrong_counts.get(qid, 0) + 1
+
+            topic_wrong: dict[str, dict] = {}
+            q_map = {q["id"]: q for q in questions}
+            for qid, wrong in wrong_counts.items():
+                total = total_by_q.get(qid, 0)
+                if not total:
+                    continue
+                wrong_rate = round(wrong / total, 3)
+                content = q_map.get(qid, {}).get("content", "알 수 없음")
+                quiz_id_for_q = q_map.get(qid, {}).get("quiz_id")
+                if content not in topic_wrong or topic_wrong[content]["wrongRate"] < wrong_rate:
+                    topic_wrong[content] = {
+                        "topic": content[:60],
+                        "wrongRate": wrong_rate,
+                        "relatedQuizzes": [{"quizId": quiz_id_for_q}] if quiz_id_for_q else [],
+                    }
+
+            weak_topics = sorted(topic_wrong.values(), key=lambda x: x["wrongRate"], reverse=True)[:10]
+
+    # weekly_stats 구성
+    weekly_stats = []
+    for sched in schedules:
+        sched_id = sched["id"]
+        week_num = sched["week_number"]
+        qid = schedule_to_quiz_id.get(sched_id)
+        scores = submissions_by_quiz.get(qid, []) if qid else []
+
+        weekly_stats.append({
+            "weekNumber": week_num,
+            "topic": sched.get("topic"),
+            "quizId": qid,
+            "averageScore": round(sum(scores) / len(scores), 1) if scores else None,
+            "participationRate": round(len(scores) / enrolled_count * 100, 1) if (scores and enrolled_count) else 0.0,
+            "previewDone": sched_id in preview_done_ids,
+            "reviewDone": sched_id in review_done_ids,
+            "scriptDone": sched_id in script_schedule_ids or week_num in script_week_numbers,
+        })
+
+    all_scores = [s for scores in submissions_by_quiz.values() for s in scores]
+    avg_accuracy = round(sum(all_scores) / len(all_scores), 1) if all_scores else 0.0
+
+    supabase.table("dashboard_snapshots").upsert({
+        "course_id": course_id,
+        "average_accuracy": avg_accuracy,
+        "weak_topics": weak_topics,
+        "uploaded_weeks": len(script_week_numbers),
+        "total_weeks": len(schedules),
+        "weekly_stats": weekly_stats,
+        "refreshed_at": datetime.now(timezone.utc).isoformat(),
+    }, on_conflict="course_id").execute()
+
+    return {
+        "message": "대시보드 스냅샷이 갱신되었습니다.",
+        "courseId": course_id,
+        "refreshedAt": datetime.now(timezone.utc).isoformat(),
+        "totalWeeks": len(schedules),
+        "uploadedWeeks": len(script_week_numbers),
+        "averageAccuracy": avg_accuracy,
+    }
