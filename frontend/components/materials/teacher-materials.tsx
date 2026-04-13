@@ -650,32 +650,110 @@ export function TeacherMaterials() {
                         </p>
                       </div>
                     </div>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="size-8">
-                              <MoreVertical className="size-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuLabel>{"자료 관리"}</DropdownMenuLabel>
-                            <DropdownMenuItem
-                              onClick={() => setEditModal({
-                                open: true,
-                                scriptId: script.id,
-                                title: script.title,
-                                scheduleId: script.scheduleId || "none"
-                              })}
-                            >
-                              <Settings2 className="mr-2 size-4" />
-                              {"정보 수정 (주차 변경)"}
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem className="text-destructive">
-                              {"삭제"}
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="size-8">
+                          <MoreVertical className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem>
+                          <Eye className="mr-2 size-4" />
+                          {"미리보기"}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="scripts" className="mt-4">
+          <div className="flex flex-col gap-3">
+            {scripts.length === 0 && (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                {"업로드된 스크립트가 없습니다."}
+              </p>
+            )}
+            {scripts.map((script) => (
+              <Card key={script.id} className="border-border/40">
+                <CardContent className="p-4">
+                  <div className="flex flex-col gap-3">
+                    <div className="flex items-start gap-3">
+                      <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10">
+                        <FileText className="size-5 text-primary" />
                       </div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="text-xs">
+                            {script.format}
+                          </Badge>
+                          <Badge variant="secondary" className="text-xs">
+                            {script.weekNumber ? `${script.weekNumber}주차` : "주차 미지정"}
+                          </Badge>
+                        </div>
+                        <p className="mt-1 font-medium text-foreground">
+                          {script.title}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {script.uploadDate}
+                        </p>
+                        {script.status === "analyzing" && (
+                          <div className="mt-2 flex items-center gap-2">
+                            <Progress
+                              value={
+                                simulatedProgress[script.id]?.progress || 0
+                              }
+                              className="h-1.5 flex-1"
+                            />
+                            <span className="w-10 text-right text-xs font-medium text-primary">
+                              {simulatedProgress[script.id]?.progress || 0}%
+                            </span>
+                            <span className="w-14 text-right text-xs text-muted-foreground tabular-nums">
+                              {simulatedProgress[script.id]?.remaining || 45}초
+                              남음
+                            </span>
+                          </div>
+                        )}
+                        {script.status === "completed" &&
+                          script.issues &&
+                          script.issues > 0 && (
+                            <div className="mt-2 flex items-center gap-2 text-xs">
+                              <AlertTriangle className="size-3 text-amber-500" />
+                              <span className="text-amber-500">
+                                {script.issues}
+                                {"개의 보완점 발견"}
+                              </span>
+                            </div>
+                          )}
+                      </div>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="size-8">
+                            <MoreVertical className="size-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuLabel>{"자료 관리"}</DropdownMenuLabel>
+                          <DropdownMenuItem
+                            onClick={() => setEditModal({
+                              open: true,
+                              scriptId: script.id,
+                              title: script.title,
+                              scheduleId: script.scheduleId || "none"
+                            })}
+                          >
+                            <Settings2 className="mr-2 size-4" />
+                            {"정보 수정 (주차 변경)"}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem className="text-destructive">
+                            {"삭제"}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                     {script.status === "completed" && (
                       <div className="mt-3 flex flex-col items-end gap-2 sm:mt-0 sm:flex-row sm:justify-end">
