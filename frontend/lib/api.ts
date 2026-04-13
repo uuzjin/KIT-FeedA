@@ -1,48 +1,8 @@
 import { supabase } from "@/lib/supabase/client";
 
-const FALLBACK_API_BASE_URL = "https://backend-production-9c858.up.railway.app";
-
-function isLocalAddress(hostname: string) {
-  return (
-    hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
-    hostname === "0.0.0.0"
-  );
-}
-
-function normalizeBaseUrl(url: string) {
-  return url.trim().replace(/\/+$/, "");
-}
-
-function resolveApiBaseUrl() {
-  const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
-  if (!configured) {
-    return FALLBACK_API_BASE_URL;
-  }
-
-  try {
-    const parsed = new URL(configured);
-    if (typeof window !== "undefined") {
-      const currentHost = window.location.hostname;
-      const currentProtocol = window.location.protocol;
-      const runningInProductionLikeHost = !isLocalAddress(currentHost);
-      const configuredIsLocal = isLocalAddress(parsed.hostname);
-      const mixedContent =
-        currentProtocol === "https:" && parsed.protocol === "http:";
-
-      if (runningInProductionLikeHost && (configuredIsLocal || mixedContent)) {
-        return FALLBACK_API_BASE_URL;
-      }
-    }
-    return normalizeBaseUrl(parsed.toString());
-  } catch {
-    return FALLBACK_API_BASE_URL;
-  }
-}
-
-type RequestOptions = RequestInit & {
-  requiresAuth?: boolean;
-};
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL ??
+  "https://backend-production-9c858.up.railway.app";
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
   const headers: Record<string, string> = {
@@ -64,19 +24,17 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
   return headers;
 }
 
-async function request<T>(path: string, init?: RequestOptions): Promise<T> {
-  const { requiresAuth = true, ...fetchInit } = init ?? {};
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const authHeaders = await getAuthHeaders();
-  const requestUrl = `${resolveApiBaseUrl()}${path}`;
 
   // Safely merge headers
   const mergedHeaders: Record<string, string> = {
     ...authHeaders,
-    ...(fetchInit.headers as Record<string, string>),
+    ...(init?.headers as Record<string, string>),
   };
 
-  if (fetchInit.headers && typeof fetchInit.headers === "object") {
-    const headerObj = fetchInit.headers as Record<string, string>;
+  if (init?.headers && typeof init.headers === "object") {
+    const headerObj = init.headers as Record<string, string>;
     Object.keys(headerObj).forEach((key) => {
       if (typeof headerObj[key] === "string") {
         mergedHeaders[key] = headerObj[key];
@@ -85,22 +43,16 @@ async function request<T>(path: string, init?: RequestOptions): Promise<T> {
   }
 
   // [디버깅] 프론트엔드 내부적으로는 토큰이 제대로 담겼는지 개발자 도구 콘솔에 출력
-  if (requiresAuth && !mergedHeaders.Authorization) {
-    throw new Error("인증 토큰이 없습니다. 다시 로그인해주세요.");
+  if (!mergedHeaders.Authorization) {
+    console.error("❌ [API Error] 인증 토큰이 없습니다. 다시 로그인 해주세요.");
+    throw new Error("인증 토큰이 없습니다. 다시 로그인 해주세요.");
   }
 
-  let response: Response;
-  try {
-    response = await fetch(requestUrl, {
-      ...fetchInit,
-      headers: mergedHeaders,
-      credentials: "include",
-    });
-  } catch {
-    throw new Error(
-      `API 서버에 연결할 수 없습니다. 요청 주소를 확인해주세요. (${requestUrl})`,
-    );
-  }
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers: mergedHeaders,
+    credentials: "include", // 쿠키 기반 인증 및 세션 유지를 위해 추가
+  });
 
   if (!response.ok) {
     let backendMessage = `HTTP error! status: ${response.status}`;
@@ -549,7 +501,6 @@ export type CourseInvitePreview = {
 export async function getInvitePreview(token: string): Promise<CourseInvitePreview> {
   return request<CourseInvitePreview>(`/api/courses/invites/${token}`, {
     method: "GET",
-    requiresAuth: false,
   });
 }
 
@@ -678,7 +629,7 @@ export async function updateUserProfile(
   }
 
   const authHeaders = await getAuthHeaders();
-  const response = await fetch(`${resolveApiBaseUrl()}/api/users/${userId}/profile`, {
+  const response = await fetch(`${API_BASE_URL}/api/users/${userId}/profile`, {
     method: "PUT",
     headers: {
       ...(authHeaders.Authorization
@@ -997,7 +948,7 @@ export async function uploadScript(
 
   const authHeaders = await getAuthHeaders();
   const response = await fetch(
-    `${resolveApiBaseUrl()}/api/courses/${courseId}/scripts`,
+    `${API_BASE_URL}/api/courses/${courseId}/scripts`,
     {
       method: "POST",
       headers: {
@@ -1114,7 +1065,7 @@ export async function uploadMaterial(
 
   const authHeaders = await getAuthHeaders();
   const response = await fetch(
-    `${resolveApiBaseUrl()}/api/courses/${courseId}/materials`,
+    `${API_BASE_URL}/api/courses/${courseId}/materials`,
     {
       method: "POST",
       headers: {
