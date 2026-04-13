@@ -5,8 +5,9 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { AppShell } from "@/components/layout/app-shell";
 import { useAuth } from "@/contexts/auth-context";
+import { useCourse } from "@/contexts/course-context";
 import { loadCourseWorkspace } from "@/lib/course-workspace";
-import { addCourseStudents, getCourseStudents } from "@/lib/api";
+import { addCourseStudents, deleteCourse, getCourseStudents } from "@/lib/api";
 import type { CourseEnrollment, CourseScriptListItem } from "@/lib/api";
 import {
   Card,
@@ -22,6 +23,16 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import { CourseInviteLmsPanel } from "@/components/courses/course-invite-lms-panel";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   ArrowLeft,
   BookOpen,
   CalendarDays,
@@ -29,6 +40,7 @@ import {
   FileText,
   FileUp,
   Users,
+  Trash2,
 } from "lucide-react";
 
 function formatDays(days: string[]) {
@@ -40,6 +52,7 @@ export default function CourseDetailPage() {
   const params = useParams();
   const courseId = typeof params?.id === "string" ? params.id : "";
   const { user, isLoading, isHydrated } = useAuth();
+  const { selectedCourse, setSelectedCourse, courses, refreshCourses } = useCourse();
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);
@@ -51,6 +64,8 @@ export default function CourseDetailPage() {
   const [enrollmentTotal, setEnrollmentTotal] = useState(0);
   const [uploadingFile, setUploadingFile] = useState(false);
   const [uploadResult, setUploadResult] = useState<string | null>(null);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const excelInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -104,6 +119,34 @@ export default function CourseDetailPage() {
     } finally {
       setUploadingFile(false);
       if (e.target) e.target.value = "";
+    }
+  };
+
+  const handleDeleteCourse = async () => {
+    if (!courseId || user?.role !== "INSTRUCTOR") return;
+
+    setIsDeleting(true);
+    setError(null);
+    try {
+      await deleteCourse(courseId);
+      await refreshCourses();
+
+      const nextCourse =
+        courses.find((course) => course.courseId !== courseId) ?? null;
+      if (nextCourse) {
+        setSelectedCourse(nextCourse);
+      } else if (selectedCourse?.courseId === courseId) {
+        setSelectedCourse(null);
+      }
+
+      router.push("/");
+    } catch (e) {
+      const msg =
+        e instanceof Error ? e.message : "강의 삭제에 실패했습니다.";
+      setError(msg);
+    } finally {
+      setIsDeleting(false);
+      setIsDeleteDialogOpen(false);
     }
   };
 
@@ -166,11 +209,25 @@ export default function CourseDetailPage() {
           {!loading && !error && course && (
             <>
               <div className="space-y-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-2xl font-semibold tracking-tight">
-                    {course.courseName}
-                  </h1>
-                  <Badge variant="secondary">{course.semester}</Badge>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h1 className="text-2xl font-semibold tracking-tight">
+                      {course.courseName}
+                    </h1>
+                    <Badge variant="secondary">{course.semester}</Badge>
+                  </div>
+                  {user.role === "INSTRUCTOR" && (
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="gap-2 self-start"
+                      onClick={() => setIsDeleteDialogOpen(true)}
+                      disabled={isDeleting}
+                    >
+                      <Trash2 className="size-4" />
+                      강의 삭제
+                    </Button>
+                  )}
                 </div>
                 <p className="text-muted-foreground">
                   {course.description?.trim() || "설명이 없습니다."}
@@ -280,6 +337,29 @@ export default function CourseDetailPage() {
           )}
         </div>
       </div>
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>강의를 삭제할까요?</AlertDialogTitle>
+            <AlertDialogDescription>
+              삭제한 강의는 되돌릴 수 없습니다. 수강생, 자료, 일정 연결도 함께 영향을 받을 수 있습니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>취소</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                void handleDeleteCourse();
+              }}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? "삭제 중..." : "삭제"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppShell>
   );
 }

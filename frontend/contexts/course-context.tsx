@@ -13,7 +13,7 @@ import { useAuth } from "@/contexts/auth-context";
 interface CourseContextType {
   courses: Course[];
   selectedCourse: Course | null;
-  setSelectedCourse: (course: Course) => void;
+  setSelectedCourse: (course: Course | null) => void;
   isLoading: boolean;
   error: string | null;
   refreshCourses: () => Promise<void>;
