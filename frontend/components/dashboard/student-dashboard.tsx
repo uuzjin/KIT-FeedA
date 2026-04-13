@@ -18,6 +18,7 @@ import {
   Play,
   Loader2,
   AlertCircle,
+  ArrowRight,
 } from "lucide-react";
 import {
   getStudentQuizHistory,
@@ -245,6 +246,19 @@ export function StudentDashboard() {
       </div>
 
       {/* 주간 통계 */}
+      {selectedCourse?.courseId && (
+        <div className="flex justify-end">
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={() => router.push(`/courses/${selectedCourse.courseId}`)}
+          >
+            강의 상세 보기
+            <ArrowRight className="size-4" />
+          </Button>
+        </div>
+      )}
+
       <section>
         <h2 className="mb-3 text-sm font-semibold text-foreground">
           {"나의 학습 현황"}
