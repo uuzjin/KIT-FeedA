@@ -180,8 +180,8 @@ export function TeacherMaterials() {
           setScripts(
             list.map((s: CourseScriptListItem) => ({
               id: s.scriptId,
-              scheduleId: s.scheduleId,
-              weekNumber: s.weekNumber,
+              scheduleId: s.scheduleId ?? null,
+              weekNumber: s.weekNumber ?? null,
               title: s.title || s.fileName || "업로드된 자료",
               format: (s.fileName.split(".").pop() || "문서").toUpperCase(),
               uploadDate: new Date(s.uploadedAt).toLocaleDateString(),
