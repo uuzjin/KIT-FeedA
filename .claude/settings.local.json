@@ -33,7 +33,16 @@
       "Bash(node_modules/.bin/tsc --noEmit)",
       "Bash(ls node_modules/.bin/tsc*)",
       "Bash(which node:*)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(wc -l /c/KIT-FeedA/backend/app/routers/*.py)",
+      "Bash(ls -la /c/KIT-FeedA/.env* /c/KIT-FeedA/frontend/.env*)",
+      "Bash(grep -n \"^@router\\\\.\" /c/KIT-FeedA/backend/app/routers/*.py)",
+      "Bash(grep \"^@router\\\\.\" /c/KIT-FeedA/backend/app/routers/*.py)",
+      "Bash(xargs wc:*)",
+      "Bash(grep -rn \"raw fetch\\\\|new fetch\\\\|fetch\\(\\\\`\\\\${process\\\\|fetch\\(process\\\\|fetch\\(\\\\`.*api\" C:/KIT-FeedA/frontend --include=\"*.ts\" --include=\"*.tsx\")",
+      "Bash(ls C:/KIT-FeedA/frontend/node_modules/.bin/tsc*)",
+      "Bash(grep -n \"enroll\\\\|xlsx\\\\|excel\\\\|addStudents\\\\|studentIds\" C:/KIT-FeedA/frontend/app/courses/\\\\\\\\[id\\\\\\\\]/page.tsx)",
+      "Bash(head:*)"
     ]
   }
 }

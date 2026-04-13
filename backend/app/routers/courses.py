@@ -1,7 +1,9 @@
+import csv
+import io
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, File, HTTPException, UploadFile
 
 from ..core.auth import get_current_user, require_instructor
 from ..core.config import settings
@@ -421,7 +423,94 @@ def enroll_students(
     }
 
 
-# ── 3.2.1-B 초대 링크 생성 ────────────────────────────────────────────────────
+# ── 3.2.1-B 엑셀/CSV 파일로 수강생 일괄 등록 ────────────────────────────────
+@router.post("/{course_id}/enrollments/upload", status_code=201)
+async def enroll_students_from_file(
+    course_id: str,
+    file: UploadFile = File(...),
+    current_user: dict = Depends(require_instructor),
+):
+    """Excel(.xlsx) 또는 CSV 파일의 첫 번째 열에 있는 이메일 목록으로 수강생을 등록합니다."""
+    require_instructor_of(course_id, current_user["id"])
+
+    if file.content_type not in (
+        "text/csv",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-excel",
+        "application/octet-stream",  # 일부 브라우저에서 xlsx를 이렇게 보냄
+    ) and not (file.filename or "").lower().endswith((".csv", ".xlsx")):
+        raise HTTPException(status_code=400, detail="CSV 또는 Excel(.xlsx) 파일만 업로드할 수 있습니다.")
+
+    content = await file.read()
+    filename = (file.filename or "").lower()
+
+    emails: list[str] = []
+
+    if filename.endswith(".xlsx"):
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+            ws = wb.active
+            for row in ws.iter_rows(min_row=1, values_only=True):
+                cell = row[0] if row else None
+                if cell and isinstance(cell, str) and "@" in cell:
+                    emails.append(cell.strip().lower())
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Excel 파일 파싱 실패: {exc}")
+    else:
+        # CSV (UTF-8 또는 EUC-KR 시도)
+        try:
+            text = content.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            try:
+                text = content.decode("euc-kr")
+            except UnicodeDecodeError:
+                raise HTTPException(status_code=400, detail="파일 인코딩을 인식할 수 없습니다. UTF-8 또는 EUC-KR로 저장해 주세요.")
+
+        reader = csv.reader(io.StringIO(text))
+        for row in reader:
+            cell = row[0].strip() if row else ""
+            if "@" in cell:
+                emails.append(cell.lower())
+
+    if not emails:
+        raise HTTPException(status_code=400, detail="파일에서 유효한 이메일 주소를 찾을 수 없습니다. 첫 번째 열에 이메일을 입력해 주세요.")
+
+    # 이메일로 프로필 조회
+    profiles_res = (
+        supabase.table("profiles")
+        .select("id, email")
+        .in_("email", emails)
+        .execute()
+    )
+    found = profiles_res.data or []
+    found_map = {p["email"]: p["id"] for p in found}
+
+    not_found_emails = [e for e in emails if e not in found_map]
+
+    if not found:
+        raise HTTPException(
+            status_code=404,
+            detail=f"파일의 이메일과 일치하는 사용자가 없습니다. 미등록 이메일: {not_found_emails[:5]}",
+        )
+
+    rows = [
+        {"course_id": course_id, "student_id": uid, "join_method": "FILE"}
+        for uid in found_map.values()
+    ]
+    result = supabase.table("course_enrollments").upsert(
+        rows, on_conflict="course_id,student_id"
+    ).execute()
+
+    return {
+        "message": f"{len(result.data or [])}명이 등록되었습니다.",
+        "enrolledCount": len(result.data or []),
+        "notFoundEmails": not_found_emails,
+        "notFoundCount": len(not_found_emails),
+    }
+
+
+# ── 3.2.1-C 초대 링크 생성 ────────────────────────────────────────────────────
 @router.post("/{course_id}/invites", status_code=201)
 def create_invite(
     course_id: str,
