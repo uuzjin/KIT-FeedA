@@ -558,13 +558,15 @@ export async function createCourseInvite(
   });
 }
 
-export async function acceptCourseInvite(
-  courseId: string,
-  token: string,
-): Promise<{ courseId: string; courseName: string; joinedAt: string }> {
-  const enc = encodeURIComponent(token);
-  return request(`/api/courses/${courseId}/invites/${enc}/accept`, {
+export async function joinCourseByInviteToken(token: string): Promise<{
+  courseId: string;
+  message: string;
+  courseName?: string;
+  joinedAt?: string;
+}> {
+  return request(`/api/courses/join`, {
     method: "POST",
+    body: JSON.stringify({ token }),
   });
 }
 
