@@ -12,6 +12,7 @@ import {
   BookOpen,
   Plus,
   Loader2,
+  Calendar,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -263,7 +264,14 @@ export function Header() {
           </div>
         </div>
 
-        {/* 우측: 프로필 */}
+        {/* 우측: 알림 + 프로필 */}
+        <div className="flex items-center gap-1">
+        <Button variant="ghost" size="icon" className="shrink-0 hover:bg-primary/10" asChild>
+          <Link href="/notifications">
+            <Bell className="size-5 text-foreground" />
+            <span className="sr-only">{"알림"}</span>
+          </Link>
+        </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -310,6 +318,24 @@ export function Header() {
               <User className="mr-3 size-4 text-muted-foreground" />
               {"프로필 설정"}
             </DropdownMenuItem>
+            <DropdownMenuItem className="cursor-pointer rounded-lg p-3" asChild>
+              <Link href="/notifications">
+                <Bell className="mr-3 size-4 text-muted-foreground" />
+                {"알림"}
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem className="cursor-pointer rounded-lg p-3" asChild>
+              <Link href="/deadlines">
+                <Calendar className="mr-3 size-4 text-muted-foreground" />
+                {"마감일"}
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem className="cursor-pointer rounded-lg p-3" asChild>
+              <Link href="/settings/reminders">
+                <Settings className="mr-3 size-4 text-muted-foreground" />
+                {"알림 설정"}
+              </Link>
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               className="cursor-pointer rounded-lg p-3"
@@ -327,6 +353,7 @@ export function Header() {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        </div>
       </div>
 
       <EditProfileModal

@@ -50,6 +50,7 @@ import {
 import { Loader2 } from "lucide-react";
 import { useCourse } from "@/contexts/course-context";
 import { CourseInfoBanner } from "@/components/layout/course-info-banner";
+import { useRealtimeSubscription } from "@/lib/hooks/use-realtime-subscription";
 
 type SchedulePreview = {
   scheduleId: string;
@@ -141,56 +142,49 @@ export function TeacherMaterials() {
     void loadData();
   }, [courseId]);
 
-  // Poll audio transcription status
-  useEffect(() => {
-    if (!courseId || !audioTask || audioTask.status === "COMPLETED" || audioTask.status === "FAILED") {
-      return;
-    }
+  // ── 오디오 변환 상태: Supabase Realtime 구독 ──
+  // audios 테이블의 해당 레코드가 UPDATE되면 즉시 상태 반영
+  useRealtimeSubscription({
+    table: "audios",
+    filter: audioTask?.audioId ? `id=eq.${audioTask.audioId}` : undefined,
+    event: "UPDATE",
+    enabled: !!courseId && !!audioTask?.audioId &&
+      audioTask.status !== "COMPLETED" && audioTask.status !== "FAILED",
+    onUpdate: (payload) => {
+      const row = payload.new;
+      setAudioTask((prev: typeof audioTask) => prev
+        ? {
+            ...prev,
+            status: (row.status as string) ?? prev.status,
+            transcriptText: (row.transcript_text as string | undefined) ?? prev.transcriptText,
+          }
+        : prev,
+      );
+    },
+  });
 
-    const intervalId = window.setInterval(async () => {
-      try {
-        const task = await getAudioConvertTask(
-          courseId,
-          audioTask.audioId
-        );
-        setAudioTask(task);
-      } catch {
-        window.clearInterval(intervalId);
-      }
-    }, 2000);
-
-    return () => window.clearInterval(intervalId);
-  }, [audioTask, courseId]);
-
-  // ── 스크립트 상태 폴링 ──
-  useEffect(() => {
-    const hasAnalyzing = scripts.some((s) => s.status === "analyzing");
-    if (!hasAnalyzing || !courseId) return;
-
-    const interval = setInterval(async () => {
-      try {
-        const scriptData = await getCourseScripts(courseId);
-        const list = scriptData.scripts;
-        if (Array.isArray(list)) {
-          setScripts(
-            list.map((s: CourseScriptListItem) => ({
-              id: s.scriptId,
-              scheduleId: s.scheduleId,
-              title: s.title || s.fileName || "업로드된 자료",
-              format: (s.fileName.split(".").pop() || "문서").toUpperCase(),
-              uploadDate: new Date(s.uploadedAt).toLocaleDateString(),
-              status: s.status === "completed" ? "completed" : "analyzing",
-              progress: 0,
-              issues: 0,
-            })),
-          );
-        }
-      } catch (e) {
-        console.error("스크립트 폴링 실패:", e);
-      }
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [scripts, courseId]);
+  // ── 스크립트 분석 상태: Supabase Realtime 구독 ──
+  // scripts 테이블에서 해당 강의 스크립트가 UPDATE되면 상태 갱신
+  useRealtimeSubscription({
+    table: "scripts",
+    filter: courseId ? `course_id=eq.${courseId}` : undefined,
+    event: "UPDATE",
+    enabled: !!courseId && scripts.some((s) => s.status === "analyzing"),
+    onUpdate: (payload) => {
+      const row = payload.new;
+      if (!row.id) return;
+      setScripts((prev) =>
+        prev.map((s) =>
+          s.id === row.id
+            ? {
+                ...s,
+                status: (row.status as string) === "completed" ? "completed" : "analyzing",
+              }
+            : s,
+        ),
+      );
+    },
+  });
 
   // ── 남은 시간 시뮬레이션 ──
   useEffect(() => {
