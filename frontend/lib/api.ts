@@ -1082,6 +1082,11 @@ export async function uploadScript(
     scriptId: string;
     status: string;
     message: string;
+    title: string;
+    fileName: string;
+    scheduleId?: string;
+    weekNumber?: number;
+    uploadedAt: string;
   };
 }
 
