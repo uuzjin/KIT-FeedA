@@ -45,6 +45,7 @@ import {
   Users,
   Trash2,
   Plus,
+  ChevronRight,
 } from "lucide-react";
 import { createCourseSchedule } from "@/lib/api";
 
