@@ -63,6 +63,8 @@ import {
   getPostAnalyses,
   triggerStructureAnalysis,
   triggerConceptsAnalysis,
+  distributePreviewGuide,
+  distributeReviewSummary,
   type CourseScriptListItem,
   type PreviewGuide,
   type ReviewSummary,
@@ -130,8 +132,9 @@ export function TeacherMaterials() {
     audioId: string | null;
     fileName: string;
     transcript: string | null;
+    segments: Array<{ start: number; end: number; text: string }> | null;
     loading: boolean;
-  }>({ open: false, audioId: null, fileName: "", transcript: null, loading: false });
+  }>({ open: false, audioId: null, fileName: "", transcript: null, segments: null, loading: false });
 
   const [isStartingConvert, setIsStartingConvert] = useState(false);
   const [isUploadingScript, setIsUploadingScript] = useState(false);
@@ -145,6 +148,15 @@ export function TeacherMaterials() {
     loading: boolean;
     triggering: string | null;
   }>({ open: false, scriptId: null, scriptTitle: "", analyses: [], loading: false, triggering: null });
+
+  const [distModal, setDistModal] = useState<{
+    open: boolean;
+    materialType: "preview" | "review" | null;
+    sourceId: string | null;
+    targetLms: string;
+    section: string;
+    loading: boolean;
+  }>({ open: false, materialType: null, sourceId: null, targetLms: "MOODLE", section: "", loading: false });
 
   // 사전 분석 리포트 상태 (4.2/4.3 - logic/terminology/prerequisites + suggestions + report)
   const [scriptReportSheet, setScriptReportSheet] = useState<{
@@ -398,13 +410,19 @@ export function TeacherMaterials() {
   };
 
   const handleOpenTranscript = async (audio: AudioItem) => {
-    setTranscriptSheet({ open: true, audioId: audio.audioId, fileName: audio.fileName, transcript: null, loading: true });
+    setTranscriptSheet({ open: true, audioId: audio.audioId, fileName: audio.fileName, transcript: null, segments: null, loading: true });
     try {
       const data = await getAudioConvertTask(courseId!, audio.audioId);
-      setTranscriptSheet(prev => ({ ...prev, transcript: data.transcript ?? null, loading: false }));
+      setTranscriptSheet(prev => ({ ...prev, transcript: data.transcript ?? null, segments: data.segments ?? null, loading: false }));
     } catch {
       setTranscriptSheet(prev => ({ ...prev, loading: false }));
     }
+  };
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
   const handleTriggerAnalysis = async (type: "structure" | "concepts") => {
@@ -419,6 +437,25 @@ export function TeacherMaterials() {
       setPostAnalysisSheet(prev => ({ ...prev, analyses: data.postAnalyses, triggering: null }));
     } catch {
       setPostAnalysisSheet(prev => ({ ...prev, triggering: null }));
+    }
+  };
+
+  const handleDistribute = async () => {
+    const { materialType, sourceId, targetLms, section } = distModal;
+    if (!courseId || !materialType || !sourceId) return;
+
+    setDistModal(prev => ({ ...prev, loading: true }));
+    try {
+      if (materialType === "preview") {
+        await distributePreviewGuide(courseId, sourceId, { targetLms, section });
+      } else {
+        await distributeReviewSummary(courseId, sourceId, { targetLms, section });
+      }
+      alert("LMS 배포가 시작되었습니다.");
+      setDistModal(prev => ({ ...prev, open: false, loading: false }));
+    } catch (e: any) {
+      alert(`배포 실패: ${e.message}`);
+      setDistModal(prev => ({ ...prev, loading: false }));
     }
   };
 
@@ -497,6 +534,11 @@ export function TeacherMaterials() {
                       <p className="text-xs text-muted-foreground">업데이트: {new Date(s.preview!.createdAt).toLocaleDateString()}</p>
                     </div>
                   </div>
+                  {s.preview!.status === "completed" && (
+                    <Button size="sm" variant="outline" onClick={() => setDistModal({ open: true, materialType: "preview", sourceId: s.preview!.previewGuideId, targetLms: "MOODLE", section: `week${s.weekNumber}`, loading: false })}>
+                      LMS 배포
+                    </Button>
+                  )}
                 </div>
               </Card>
             ))}
@@ -519,6 +561,11 @@ export function TeacherMaterials() {
                       <p className="text-xs text-muted-foreground">업데이트: {new Date(s.review!.createdAt).toLocaleDateString()}</p>
                     </div>
                   </div>
+                  {s.review!.status === "completed" && (
+                    <Button size="sm" variant="outline" onClick={() => setDistModal({ open: true, materialType: "review", sourceId: s.review!.reviewSummaryId, targetLms: "MOODLE", section: `week${s.weekNumber}`, loading: false })}>
+                      LMS 배포
+                    </Button>
+                  )}
                 </div>
               </Card>
             ))}
@@ -626,7 +673,26 @@ export function TeacherMaterials() {
       <Sheet open={transcriptSheet.open} onOpenChange={o => setTranscriptSheet(prev => ({ ...prev, open: o }))}>
         <SheetContent side="bottom" className="h-[80vh] overflow-y-auto">
           <SheetHeader><SheetTitle>음성 트랜스크립트</SheetTitle></SheetHeader>
-          {transcriptSheet.loading ? <div className="flex justify-center py-12"><Loader2 className="animate-spin" /></div> : <p className="whitespace-pre-wrap text-sm py-4">{transcriptSheet.transcript || "내용이 없습니다."}</p>}
+          {transcriptSheet.loading ? (
+            <div className="flex justify-center py-12"><Loader2 className="animate-spin" /></div>
+          ) : (
+            <div className="py-6 space-y-4">
+              {transcriptSheet.segments && transcriptSheet.segments.length > 0 ? (
+                <div className="flex flex-col gap-3">
+                  {transcriptSheet.segments.map((seg, i) => (
+                    <div key={i} className="flex gap-4 p-2 rounded-lg hover:bg-muted/50 transition-colors group">
+                      <span className="text-xs font-mono text-primary bg-primary/10 px-2 py-1 rounded shrink-0 self-start">
+                        {formatTime(seg.start)}
+                      </span>
+                      <p className="text-sm leading-relaxed text-foreground">{seg.text}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="whitespace-pre-wrap text-sm text-muted-foreground">{transcriptSheet.transcript || "내용이 없습니다."}</p>
+              )}
+            </div>
+          )}
         </SheetContent>
       </Sheet>
 
@@ -661,6 +727,41 @@ export function TeacherMaterials() {
           )}
         </SheetContent>
       </Sheet>
+
+      <Dialog open={distModal.open} onOpenChange={o => setDistModal(prev => ({ ...prev, open: o }))}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>LMS 배포</DialogTitle>
+            <DialogDescription>
+              {distModal.materialType === "preview" ? "예습 가이드" : "복습 요약본"}를 LMS에 업로드합니다.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>LMS 유형</Label>
+              <Select value={distModal.targetLms} onValueChange={v => setDistModal(prev => ({ ...prev, targetLms: v }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="MOODLE">Moodle</SelectItem>
+                  <SelectItem value="CANVAS">Canvas</SelectItem>
+                  <SelectItem value="BLACKBOARD">Blackboard</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>LMS 섹션 (주차 등)</Label>
+              <Input value={distModal.section} onChange={e => setDistModal(prev => ({ ...prev, section: e.target.value }))} placeholder="예: week4" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDistModal(prev => ({ ...prev, open: false }))}>취소</Button>
+            <Button onClick={handleDistribute} disabled={distModal.loading}>
+              {distModal.loading ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+              업로드 시작
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

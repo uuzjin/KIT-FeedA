@@ -398,6 +398,74 @@ class QuizSubmitRequest(BaseModel):
     answers: list[SubmitAnswer]
 
 
+# ── 5.3 퀴즈 응시 결과 상세 뷰 ───────────────────────────────────────────────────
+
+@router.get("/{quiz_id}/submissions/me")
+def get_my_submission(
+    course_id: str,
+    quiz_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    student_id = current_user["id"]
+
+    # 제출 내역 확인
+    sub = (
+        supabase.table("quiz_submissions")
+        .select("*")
+        .eq("quiz_id", quiz_id)
+        .eq("student_id", student_id)
+        .maybe_single()
+        .execute()
+    )
+    if not sub.data:
+        raise HTTPException(status_code=404, detail="제출 내역이 없습니다.")
+
+    submission_id = sub.data["id"]
+
+    # 퀴즈 및 문항 정보 조회 (정답/해설 포함)
+    quiz = (
+        supabase.table("quizzes")
+        .select("id, title, \"questions\":quiz_questions(id, order_num, content, options, answer, explanation)")
+        .eq("id", quiz_id)
+        .maybe_single()
+        .execute()
+    )
+
+    # 학생의 답안 조회
+    answers = (
+        supabase.table("quiz_submission_answers")
+        .select("question_id, selected_option, is_correct")
+        .eq("submission_id", submission_id)
+        .execute()
+    )
+    ans_map = {a["question_id"]: a for a in (answers.data or [])}
+
+    # 결과 조립
+    questions_result = []
+    for q in (quiz.data.get("questions") or []):
+        ans = ans_map.get(q["id"], {})
+        questions_result.append({
+            "id": q["id"],
+            "orderNum": q["order_num"],
+            "content": q["content"],
+            "options": q["options"],
+            "answer": q["answer"],
+            "explanation": q.get("explanation"),
+            "selectedOption": ans.get("selected_option"),
+            "isCorrect": ans.get("is_correct", False)
+        })
+
+    return {
+        "quizId": quiz.data["id"],
+        "title": quiz.data["title"],
+        "score": sub.data["score"],
+        "correctCount": sub.data["correct_count"],
+        "totalCount": sub.data["total_count"],
+        "submittedAt": sub.data["submitted_at"],
+        "questions": sorted(questions_result, key=lambda x: x["orderNum"])
+    }
+
+
 @router.post("/{quiz_id}/submissions", status_code=201)
 def submit_quiz(
     course_id: str,
