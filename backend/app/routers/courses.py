@@ -70,9 +70,8 @@ def _accept_invite_for_user(current_user: dict, token: str, expected_course_id: 
     if existing.data:
         raise HTTPException(status_code=409, detail="이미 이 강의에 수강 등록되어 있습니다.")
 
-    supabase.table("course_enrollments").upsert(
-        {"course_id": course_id, "student_id": current_user["id"], "join_method": "INVITE"},
-        on_conflict="course_id,student_id",
+    supabase.table("course_enrollments").insert(
+        {"course_id": course_id, "student_id": current_user["id"], "join_method": "INVITE"}
     ).execute()
 
     course_row = (
@@ -171,7 +170,26 @@ def get_course(course_id: str, current_user: dict = Depends(get_current_user)):
     result = supabase.table("courses").select("*").eq("id", course_id).maybe_single().execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="강의를 찾을 수 없습니다.")
-    return _format_course(result.data)
+    
+    course = _format_course(result.data)
+    
+    # 담당 교수 정보 조회
+    instructor_result = supabase.table("course_instructors").select("instructor_id, profiles(name, email)").eq("course_id", course_id).maybe_single().execute()
+    instructor = None
+    if instructor_result.data:
+        instructor = {
+            "userId": instructor_result.data["instructor_id"],
+            "name": instructor_result.data["profiles"]["name"] if instructor_result.data.get("profiles") else "",
+            "email": instructor_result.data["profiles"]["email"] if instructor_result.data.get("profiles") else "",
+        }
+    
+    # 현재 수강생 수 조회
+    enrollments_result = supabase.table("course_enrollments").select("id", count=True).eq("course_id", course_id).execute()
+    current_students = len(enrollments_result.data) if enrollments_result.data else 0
+    
+    course["instructor"] = instructor
+    course["currentStudents"] = current_students
+    return course
 
 
 # ── 3.1.4 강의 수정 ────────────────────────────────────────────────────────────
