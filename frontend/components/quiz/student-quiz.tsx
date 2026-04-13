@@ -16,14 +16,23 @@ import {
   Award,
   Target,
   Loader2,
+  Check,
+  X,
 } from "lucide-react";
 import {
   getCourses,
   getCourseQuizzes,
   getStudentQuizHistory,
+  getStudentQuizSubmissionDetail,
   type Quiz,
   type QuizSubmissionHistory,
 } from "@/lib/api";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { useAuth } from "@/contexts/auth-context";
 
 export function StudentQuiz() {
@@ -33,6 +42,12 @@ export function StudentQuiz() {
   const [completedQuizzes, setCompletedQuizzes] = useState<QuizSubmissionHistory[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [detailSheet, setDetailSheet] = useState<{
+    open: boolean;
+    loading: boolean;
+    data: any | null;
+  }>({ open: false, loading: false, data: null });
 
   useEffect(() => {
     if (!user?.id) return;
@@ -90,6 +105,17 @@ export function StudentQuiz() {
   const maxScore = completedQuizzes.length > 0
     ? Math.max(...completedQuizzes.map((q) => q.score))
     : 0;
+
+  const handleOpenDetail = async (courseId: string, quizId: string) => {
+    setDetailSheet({ open: true, loading: true, data: null });
+    try {
+      const data = await getStudentQuizSubmissionDetail(courseId, quizId);
+      setDetailSheet({ open: true, loading: false, data });
+    } catch (err) {
+      console.error(err);
+      setDetailSheet({ open: true, loading: false, data: null });
+    }
+  };
 
   if (isLoading) {
     return (
@@ -292,7 +318,7 @@ export function StudentQuiz() {
                       <Button size="sm" variant="outline" className="flex-1">
                         {"오답 복습"}
                       </Button>
-                      <Button size="sm" variant="ghost">
+                      <Button size="sm" variant="ghost" onClick={() => handleOpenDetail(quiz.courseId, quiz.quizId)}>
                         {"상세 결과"}
                       </Button>
                     </div>
@@ -303,6 +329,84 @@ export function StudentQuiz() {
           )}
         </TabsContent>
       </Tabs>
+
+      <Sheet open={detailSheet.open} onOpenChange={o => setDetailSheet(prev => ({ ...prev, open: o }))}>
+        <SheetContent side="bottom" className="h-[90vh] overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>퀴즈 상세 결과</SheetTitle>
+          </SheetHeader>
+          {detailSheet.loading ? (
+            <div className="flex justify-center py-12"><Loader2 className="size-8 animate-spin text-primary" /></div>
+          ) : !detailSheet.data ? (
+            <div className="py-8 text-center text-muted-foreground">결과를 불러올 수 없습니다.</div>
+          ) : (
+            <div className="flex flex-col gap-6 py-6">
+              <div className="flex items-center justify-between rounded-xl bg-primary/5 p-4">
+                <div>
+                  <h3 className="text-lg font-bold">{detailSheet.data.title}</h3>
+                  <p className="text-sm text-muted-foreground">{new Date(detailSheet.data.submittedAt).toLocaleString()}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-3xl font-bold text-primary">{Math.round(detailSheet.data.score)}점</p>
+                  <p className="text-sm text-muted-foreground">{detailSheet.data.correctCount}/{detailSheet.data.totalCount} 맞춤</p>
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                {detailSheet.data.questions.map((q: any, i: number) => (
+                  <div key={q.id} className="space-y-3">
+                    <div className="flex items-start gap-3">
+                      <div className={`mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-white ${q.isCorrect ? "bg-emerald-500" : "bg-destructive"}`}>
+                        {q.isCorrect ? <Check className="size-4" /> : <X className="size-4" />}
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-medium">
+                          <span className="mr-2 text-muted-foreground">{i + 1}.</span>
+                          {q.content}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="ml-9 grid gap-2">
+                      {q.options.map((opt: string) => {
+                        const isSelected = q.selectedOption === opt;
+                        const isCorrect = q.answer === opt;
+                        return (
+                          <div
+                            key={opt}
+                            className={`rounded-lg border p-3 text-sm transition-colors ${
+                              isCorrect
+                                ? "border-emerald-500 bg-emerald-500/10 text-emerald-700"
+                                : isSelected
+                                ? "border-destructive bg-destructive/10 text-destructive-700"
+                                : "border-border bg-card"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span>{opt}</span>
+                              {isCorrect && <CheckCircle className="size-4 text-emerald-500" />}
+                              {!isCorrect && isSelected && <AlertTriangle className="size-4 text-destructive" />}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {q.explanation && (
+                      <div className="ml-9 rounded-lg bg-muted p-3 text-xs text-muted-foreground">
+                        <p className="mb-1 font-semibold text-foreground flex items-center gap-1">
+                          <BookOpen className="size-3" /> 해설
+                        </p>
+                        {q.explanation}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

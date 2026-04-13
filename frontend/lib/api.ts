@@ -602,6 +602,49 @@ export async function syncLmsStudents(
   });
 }
 
+// 6.4 LMS Distributions
+export async function distributePreviewGuide(
+  courseId: string,
+  guideId: string,
+  payload: { targetLms: string; section?: string },
+) {
+  return request<{ distributionId: string; lmsUrl: string; message: string }>(
+    `/api/courses/${courseId}/preview-guides/${guideId}/distributions`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
+export async function distributeReviewSummary(
+  courseId: string,
+  summaryId: string,
+  payload: { targetLms: string; section?: string },
+) {
+  return request<{ distributionId: string; lmsUrl: string; message: string }>(
+    `/api/courses/${courseId}/review-summaries/${summaryId}/distributions`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
+export async function distributeAnnouncement(
+  courseId: string,
+  announcementId: string,
+  payload: { targetLms: string; section?: string },
+) {
+  return request<{ distributionId: string; lmsUrl: string; message: string }>(
+    `/api/courses/${courseId}/announcements/${announcementId}/distributions`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
 export async function getNoticeSettings() {
   return request<NoticeSettings>("/api/notices/settings");
 }
@@ -699,6 +742,7 @@ export async function getAudioConvertTask(courseId: string, audioId: string) {
     audioId: res.audioId,
     status: res.status,
     transcript: res.transcript,
+    segments: res.segments as Array<{ start: number; end: number; text: string }> | undefined,
     transcriptPreview: res.transcript ? res.transcript.substring(0, 200) : null,
     completedAt: res.transcriptCompletedAt,
     fileName: res.fileName,
@@ -782,6 +826,30 @@ export async function getStudentQuizHistory(courseId?: string): Promise<{
   }>(
     `/api/dashboard/students/quiz-history${params.toString() ? `?${params}` : ""}`,
   );
+}
+
+export async function getStudentQuizSubmissionDetail(
+  courseId: string,
+  quizId: string,
+) {
+  return request<{
+    quizId: string;
+    title: string;
+    score: number;
+    correctCount: number;
+    totalCount: number;
+    submittedAt: string;
+    questions: Array<{
+      id: string;
+      orderNum: number;
+      content: string;
+      options: string[];
+      answer: string;
+      explanation: string | null;
+      selectedOption: string | null;
+      isCorrect: boolean;
+    }>;
+  }>(`/api/courses/${courseId}/quizzes/${quizId}/submissions/me`);
 }
 
 export async function getStudentMaterials(courseId?: string): Promise<{
