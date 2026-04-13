@@ -44,10 +44,11 @@ def _get_schedule(course_id: str, schedule_id: str) -> dict:
 
 
 def _get_script_text(course_id: str, schedule_id: str) -> str:
-    """해당 스케줄의 최신 스크립트 텍스트 반환. 없으면 빈 문자열."""
+    """해당 스케줄의 최신 스크립트 텍스트 반환. 없으면 해당 과목의 최신 스크립트라도 활용."""
     from ..core.storage import BUCKET_SCRIPTS
     from ..core.text_extract import extract_text
 
+    # 1. 우선 해당 스케줄(주차)에 연결된 자료 확인
     row = (
         supabase.table("scripts")
         .select("content_path, mime_type")
@@ -57,15 +58,32 @@ def _get_script_text(course_id: str, schedule_id: str) -> str:
         .limit(1)
         .execute()
     )
+    
+    # 2. 없다면 주차 미지정 자료 중 가장 최근 것 확인
     if not row.data:
-        return ""
+        row = (
+            supabase.table("scripts")
+            .select("content_path, mime_type")
+            .eq("course_id", course_id)
+            .is_("schedule_id", "null")
+            .order("uploaded_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+
+    if not row.data:
+        raise ValueError("분석할 강의 자료(PDF 등)가 없습니다. 먼저 자료를 업로드해주세요.")
+
     try:
         file_bytes: bytes = supabase.storage.from_(BUCKET_SCRIPTS).download(
             row.data[0]["content_path"]
         )
-        return extract_text(file_bytes, row.data[0]["mime_type"])
-    except Exception:
-        return ""
+        text = extract_text(file_bytes, row.data[0]["mime_type"])
+        if not text or len(text.strip()) < 10:
+            raise ValueError("강의 자료에서 텍스트를 추출할 수 없습니다. 파일 내용을 확인해주세요.")
+        return text
+    except Exception as e:
+        raise ValueError(f"강의 자료 다운로드 또는 텍스트 추출 중 오류 발생: {str(e)}")
 
 
 def _get_transcript_text(course_id: str, schedule_id: str) -> str:
