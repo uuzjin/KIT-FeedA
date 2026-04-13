@@ -1085,6 +1085,17 @@ export async function uploadScript(
   };
 }
 
+export async function updateScript(
+  courseId: string,
+  scriptId: string,
+  payload: { title?: string; weekNumber?: number; scheduleId?: string | null },
+): Promise<CourseScriptListItem> {
+  return request(`/api/courses/${courseId}/scripts/${scriptId}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function getCourseScripts(
   courseId: string,
 ): Promise<{ scripts: CourseScriptListItem[] }> {

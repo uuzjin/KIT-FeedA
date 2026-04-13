@@ -15,17 +15,14 @@ from ..database import supabase
 from ..dependencies import require_instructor_of
 
 materials_router = APIRouter(
-    prefix="/api/courses/{course_id}/materials",
     tags=["content"],
 )
 
 # 두 리소스의 URL 계층이 다르므로 별도 router 객체 사용
 preview_router = APIRouter(
-    prefix="/api/courses/{course_id}/schedules/{schedule_id}/preview-guides",
     tags=["content"],
 )
 review_router = APIRouter(
-    prefix="/api/courses/{course_id}/schedules/{schedule_id}/review-summaries",
     tags=["content"],
 )
 

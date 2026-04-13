@@ -281,6 +281,41 @@ def get_script(course_id: str, script_id: str, current_user: dict = Depends(get_
     return script
 
 
+# ── 스크립트 수정 (제목/주차) ───────────────────────────────────────────────────
+@router.put("/{script_id}")
+def update_script(
+    course_id: str,
+    script_id: str,
+    payload: dict,
+    current_user: dict = Depends(require_instructor),
+):
+    require_instructor_of(course_id, current_user["id"])
+
+    update_data = {}
+    if "title" in payload:
+        update_data["title"] = payload["title"]
+    if "weekNumber" in payload:
+        update_data["week_number"] = payload["weekNumber"]
+    if "scheduleId" in payload:
+        update_data["schedule_id"] = payload["scheduleId"]
+
+    if not update_data:
+        raise HTTPException(status_code=400, detail="수정할 데이터가 없습니다.")
+
+    result = (
+        supabase.table("scripts")
+        .update(update_data)
+        .eq("id", script_id)
+        .eq("course_id", course_id)
+        .maybe_single()
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="스크립트를 찾을 수 없습니다.")
+
+    return _format_script(result.data)
+
+
 # ── 스크립트 삭제 ─────────────────────────────────────────────────────────────
 @router.delete("/{script_id}", status_code=204)
 def delete_script(

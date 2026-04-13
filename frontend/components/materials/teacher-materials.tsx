@@ -16,19 +16,40 @@ import {
   FileUp,
   Mic,
   AlertTriangle,
+  Settings2,
 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   getCourseSchedules,
   getPreviewGuide,
   getReviewSummary,
   getCourseScripts,
   uploadScript,
+  updateScript,
   uploadAudio,
   getAudioConvertTask,
   listAudios,
@@ -68,6 +89,21 @@ export function TeacherMaterials() {
 
   const [schedules, setSchedules] = useState<SchedulePreview[]>([]);
   const [scripts, setScripts] = useState<any[]>([]);
+  
+  // 모달 상태
+  const [uploadModal, setUploadModal] = useState({
+    open: false,
+    file: null as File | null,
+    title: "",
+    scheduleId: "none",
+  });
+  const [editModal, setEditModal] = useState({
+    open: false,
+    scriptId: "",
+    title: "",
+    scheduleId: "none",
+  });
+
   const [simulatedProgress, setSimulatedProgress] = useState<
     Record<string, { progress: number; remaining: number }>
   >({});
@@ -614,84 +650,31 @@ export function TeacherMaterials() {
                         </p>
                       </div>
                     </div>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="size-8">
-                          <MoreVertical className="size-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem>
-                          <Eye className="mr-2 size-4" />
-                          {"미리보기"}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </TabsContent>
-
-        <TabsContent value="scripts" className="mt-4">
-          <div className="flex flex-col gap-3">
-            {scripts.length === 0 && (
-              <p className="py-8 text-center text-sm text-muted-foreground">
-                {"업로드된 스크립트가 없습니다."}
-              </p>
-            )}
-            {scripts.map((script) => (
-              <Card key={script.id} className="border-border/40">
-                <CardContent className="p-4">
-                  <div className="flex flex-col gap-3">
-                    <div className="flex items-start gap-3">
-                      <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10">
-                        <FileText className="size-5 text-primary" />
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline" className="text-xs">
-                            {script.format}
-                          </Badge>
-                          <Badge variant="secondary" className="text-xs">
-                            {script.weekNumber ? `${script.weekNumber}주차` : "주차 미지정"}
-                          </Badge>
-                        </div>
-                        <p className="mt-1 font-medium text-foreground">
-                          {script.title}
-                        </p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {script.uploadDate}
-                        </p>
-                        {script.status === "analyzing" && (
-                          <div className="mt-2 flex items-center gap-2">
-                            <Progress
-                              value={
-                                simulatedProgress[script.id]?.progress || 0
-                              }
-                              className="h-1.5 flex-1"
-                            />
-                            <span className="w-10 text-right text-xs font-medium text-primary">
-                              {simulatedProgress[script.id]?.progress || 0}%
-                            </span>
-                            <span className="w-14 text-right text-xs text-muted-foreground tabular-nums">
-                              {simulatedProgress[script.id]?.remaining || 45}초
-                              남음
-                            </span>
-                          </div>
-                        )}
-                        {script.status === "completed" &&
-                          script.issues &&
-                          script.issues > 0 && (
-                            <div className="mt-2 flex items-center gap-2 text-xs">
-                              <AlertTriangle className="size-3 text-amber-500" />
-                              <span className="text-amber-500">
-                                {script.issues}
-                                {"개의 보완점 발견"}
-                              </span>
-                            </div>
-                          )}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="size-8">
+                              <MoreVertical className="size-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuLabel>{"자료 관리"}</DropdownMenuLabel>
+                            <DropdownMenuItem
+                              onClick={() => setEditModal({
+                                open: true,
+                                scriptId: script.id,
+                                title: script.title,
+                                scheduleId: script.scheduleId || "none"
+                              })}
+                            >
+                              <Settings2 className="mr-2 size-4" />
+                              {"정보 수정 (주차 변경)"}
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem className="text-destructive">
+                              {"삭제"}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </div>
                     {script.status === "completed" && (
@@ -737,6 +720,92 @@ export function TeacherMaterials() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* 업로드 확인 모달 */}
+      <Dialog open={uploadModal.open} onOpenChange={(open) => setUploadModal(prev => ({ ...prev, open }))}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>{"강의 자료 업로드"}</DialogTitle>
+            <DialogDescription>{"업로드할 자료의 제목과 주차를 확인해주세요."}</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="title">{"자료 제목"}</Label>
+              <Input
+                id="title"
+                value={uploadModal.title}
+                onChange={(e) => setUploadModal(prev => ({ ...prev, title: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>{"대상 주차"}</Label>
+              <Select
+                value={uploadModal.scheduleId}
+                onValueChange={(val) => setUploadModal(prev => ({ ...prev, scheduleId: val }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="주차 선택" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">{"주차 미지정"}</SelectItem>
+                  {schedules.map(s => (
+                    <SelectItem key={s.scheduleId} value={s.scheduleId}>
+                      {s.weekNumber}{"주차: "}{s.topic}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUploadModal(prev => ({ ...prev, open: false }))}>{"취소"}</Button>
+            <Button onClick={handleScriptUploadConfirm} disabled={isUploadingScript}>{"업로드 시작"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 정보 수정 모달 */}
+      <Dialog open={editModal.open} onOpenChange={(open) => setEditModal(prev => ({ ...prev, open }))}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>{"자료 정보 수정"}</DialogTitle>
+            <DialogDescription>{"자료의 제목이나 배정된 주차를 변경할 수 있습니다."}</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-title">{"자료 제목"}</Label>
+              <Input
+                id="edit-title"
+                value={editModal.title}
+                onChange={(e) => setEditModal(prev => ({ ...prev, title: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>{"주차 변경"}</Label>
+              <Select
+                value={editModal.scheduleId}
+                onValueChange={(val) => setEditModal(prev => ({ ...prev, scheduleId: val }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="주차 선택" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">{"주차 미지정"}</SelectItem>
+                  {schedules.map(s => (
+                    <SelectItem key={s.scheduleId} value={s.scheduleId}>
+                      {s.weekNumber}{"주차: "}{s.topic}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditModal(prev => ({ ...prev, open: false }))}>{"취소"}</Button>
+            <Button onClick={handleUpdateScriptConfirm}>{"수정 완료"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* 트랜스크립트 보기 시트 */}
       <Sheet
