@@ -19,6 +19,10 @@ router = APIRouter(prefix="/api/courses/{course_id}/scripts", tags=["scripts"])
 
 
 def _format_script(row: dict) -> dict:
+    status = "analyzing"
+    if row.get("script_reports"):
+        status = "completed"
+
     return {
         "scriptId": row.get("id"),
         "courseId": row.get("course_id"),
@@ -29,6 +33,7 @@ def _format_script(row: dict) -> dict:
         "mimeType": row.get("mime_type"),
         "weekNumber": row.get("week_number"),
         "uploadedAt": row.get("uploaded_at") or row.get("created_at"),
+        "status": status,
     }
 
 
@@ -215,7 +220,7 @@ def list_scripts(
     try:
         q = (
             supabase.table("scripts")
-            .select("*")
+            .select("*, script_reports(id)")
             .eq("course_id", course_id)
             .order("uploaded_at", desc=True)
         )
@@ -235,7 +240,7 @@ def list_scripts(
 def get_script(course_id: str, script_id: str, current_user: dict = Depends(get_current_user)):
     result = (
         supabase.table("scripts")
-        .select("*")
+        .select("*, script_reports(id)")
         .eq("id", script_id)
         .eq("course_id", course_id)
         .maybe_single()

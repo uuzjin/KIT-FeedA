@@ -992,6 +992,7 @@ export type CourseScriptListItem = {
   weekNumber?: number | null;
   uploadedAt: string;
   downloadUrl?: string;
+  status?: string;
 };
 
 // Script Types (분석 상세 등 — 별도 엔드포인트)

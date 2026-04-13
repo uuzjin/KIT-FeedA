@@ -45,6 +45,9 @@ export function TeacherMaterials() {
   const [previewMaterials, setPreviewMaterials] = useState<any[]>([]);
   const [reviewMaterials, setReviewMaterials] = useState<any[]>([]);
   const [scripts, setScripts] = useState<any[]>([]);
+  const [simulatedProgress, setSimulatedProgress] = useState<
+    Record<string, { progress: number; remaining: number }>
+  >({});
 
   const [activeTab, setActiveTab] = useState("preview");
   const [audioTask, setAudioTask] = useState<any | null>(null);
@@ -179,6 +182,66 @@ export function TeacherMaterials() {
     return () => window.clearInterval(intervalId);
   }, [audioTask, courseId]);
 
+  // ── 스크립트 상태 폴링 (진행 중인 분석이 있을 때만 5초마다 갱신) ──
+  useEffect(() => {
+    const hasAnalyzing = scripts.some((s) => s.status === "analyzing");
+    if (!hasAnalyzing || !courseId) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const scriptData = await getCourseScripts(courseId);
+        const list = scriptData.scripts;
+        if (Array.isArray(list)) {
+          setScripts(
+            list.map((s: any) => ({
+              id: s.scriptId || s.id,
+              title:
+                s.title || s.fileName || s.file_name || "업로드된 스크립트",
+              format: (
+                (s.fileName || s.file_name || "").split(".").pop() || "문서"
+              ).toUpperCase(),
+              uploadDate: new Date(
+                s.uploadedAt || s.created_at || Date.now(),
+              ).toLocaleDateString(),
+              status: s.status === "completed" ? "completed" : "analyzing",
+              progress: s.progress || 0,
+              issues: s.issues_count || 0,
+            })),
+          );
+        }
+      } catch (e) {
+        console.error("스크립트 폴링 실패:", e);
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [scripts, courseId]);
+
+  // ── 남은 시간 시뮬레이션 및 퍼센트 게이지 애니메이션 ──
+  useEffect(() => {
+    const hasAnalyzing = scripts.some((s) => s.status === "analyzing");
+    if (!hasAnalyzing) return;
+
+    const interval = setInterval(() => {
+      setSimulatedProgress((prev) => {
+        const next = { ...prev };
+        scripts
+          .filter((s) => s.status === "analyzing")
+          .forEach((s) => {
+            const current = next[s.id] || { progress: 0, remaining: 45 };
+            next[s.id] = {
+              progress: Math.min(
+                99,
+                current.progress + Math.floor(Math.random() * 3) + 1,
+              ), // 1~3% 랜덤 상승 (최대 99%)
+              remaining: Math.max(1, current.remaining - 1), // 1초씩 감소
+            };
+          });
+        return next;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [scripts]);
+
   const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -213,7 +276,22 @@ export function TeacherMaterials() {
     setIsUploadingScript(true);
 
     try {
-      await uploadScript(courseId as string, { file, title: file.name });
+      const res = await uploadScript(courseId as string, {
+        file,
+        title: file.name,
+      });
+
+      // 방금 업로드한 스크립트를 목록 최상단에 즉시 추가하여 애니메이션을 바로 시작시킵니다.
+      const newScript = {
+        id: res.scriptId,
+        title: file.name,
+        format: (file.name.split(".").pop() || "문서").toUpperCase(),
+        uploadDate: new Date().toLocaleDateString(),
+        status: "analyzing",
+        progress: 0,
+        issues: 0,
+      };
+      setScripts((prev) => [newScript, ...prev]);
 
       alert("스크립트가 성공적으로 업로드되어 AI 분석이 시작되었습니다!");
       setActiveTab("scripts");
@@ -544,11 +622,17 @@ export function TeacherMaterials() {
                         {script.status === "analyzing" && (
                           <div className="mt-2 flex items-center gap-2">
                             <Progress
-                              value={script.progress}
+                              value={
+                                simulatedProgress[script.id]?.progress || 0
+                              }
                               className="h-1.5 flex-1"
                             />
-                            <span className="text-xs text-muted-foreground">
-                              {script.progress}%
+                            <span className="w-10 text-right text-xs font-medium text-primary">
+                              {simulatedProgress[script.id]?.progress || 0}%
+                            </span>
+                            <span className="w-14 text-right text-xs text-muted-foreground tabular-nums">
+                              {simulatedProgress[script.id]?.remaining || 45}초
+                              남음
                             </span>
                           </div>
                         )}
