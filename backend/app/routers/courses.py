@@ -1,6 +1,7 @@
 import csv
 import io
 import secrets
+import time
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, UploadFile
@@ -48,60 +49,89 @@ def _create_notification(user_id: str, notification_type: str, title: str, body:
     }).execute()
 
 
+def _execute_with_retry(builder, *, attempts: int = 2, delay_seconds: float = 0.2):
+    last_error = None
+    for attempt in range(attempts):
+        try:
+            result = builder.execute()
+            if result is not None:
+                return result
+        except Exception as exc:
+            last_error = exc
+        if attempt < attempts - 1:
+            time.sleep(delay_seconds)
+
+    if last_error is not None:
+        raise HTTPException(
+            status_code=503,
+            detail="????? ?? ??? ??????. ?? ? ?? ??? ???.",
+        ) from last_error
+    raise HTTPException(
+        status_code=503,
+        detail="????? ?? ??? ??????. ?? ? ?? ??? ???.",
+    )
+
+
 def _notify_invite_acceptance(course_id: str, course_name: str, student_id: str) -> None:
     metadata = {"courseId": course_id, "studentId": student_id}
 
-    _create_notification(
-        user_id=student_id,
-        notification_type="SYSTEM",
-        title="강의 참여가 완료되었습니다.",
-        body=f"'{course_name}' 강의에 참여했습니다.",
-        metadata=metadata,
-    )
-
-    instructor_rows = (
-        supabase.table("course_instructors")
-        .select("instructor_id")
-        .eq("course_id", course_id)
-        .execute()
-    ).data or []
-
-    profile_row = (
-        supabase.table("profiles")
-        .select("name")
-        .eq("id", student_id)
-        .maybe_single()
-        .execute()
-    )
-    student_name = (profile_row.data or {}).get("name") or "학생"
-
-    instructor_ids = {
-        row["instructor_id"]
-        for row in instructor_rows
-        if row.get("instructor_id")
-    }
-    for instructor_id in instructor_ids:
+    try:
         _create_notification(
-            user_id=instructor_id,
+            user_id=student_id,
             notification_type="SYSTEM",
-            title="새로운 학생이 강의에 참여했습니다.",
-            body=f"{student_name} 학생이 '{course_name}' 강의에 참여했습니다.",
+            title="Course joined",
+            body=f"Joined '{course_name}'.",
             metadata=metadata,
         )
+
+        instructor_rows = (
+            _execute_with_retry(
+                supabase.table("course_instructors")
+                .select("instructor_id")
+                .eq("course_id", course_id)
+            ).data
+            or []
+        )
+
+        profile_row = _execute_with_retry(
+            supabase.table("profiles")
+            .select("name")
+            .eq("id", student_id)
+            .maybe_single()
+        )
+        student_name = (profile_row.data or {}).get("name") or "Student"
+
+        instructor_ids = {
+            row["instructor_id"]
+            for row in instructor_rows
+            if row.get("instructor_id")
+        }
+        for instructor_id in instructor_ids:
+            try:
+                _create_notification(
+                    user_id=instructor_id,
+                    notification_type="SYSTEM",
+                    title="New student joined",
+                    body=f"{student_name} joined '{course_name}'.",
+                    metadata=metadata,
+                )
+            except Exception:
+                continue
+    except Exception:
+        return
 
 
 def _accept_invite_for_user(current_user: dict, token: str, expected_course_id: str | None) -> dict:
     if current_user.get("role") != "STUDENT":
         raise HTTPException(status_code=403, detail="학생만 초대 링크로 수강 등록할 수 있습니다.")
 
-    invite = (
+    invite = _execute_with_retry(
         supabase.table("course_invites")
         .select("*")
         .eq("token", token)
         .maybe_single()
-        .execute()
     )
-    if not invite.data:
+    if not invite or not invite.data:
         raise HTTPException(status_code=404, detail="유효하지 않은 초대 코드입니다.")
 
     course_id = invite.data["course_id"]
@@ -114,40 +144,39 @@ def _accept_invite_for_user(current_user: dict, token: str, expected_course_id: 
         if datetime.now(timezone.utc) > expires_at:
             raise HTTPException(status_code=410, detail="만료된 초대 링크입니다.")
 
-    existing = (
+    existing = _execute_with_retry(
         supabase.table("course_enrollments")
         .select("id")
         .eq("course_id", course_id)
         .eq("student_id", current_user["id"])
         .maybe_single()
-        .execute()
     )
-    if existing.data:
+    if existing and existing.data:
         raise HTTPException(status_code=409, detail="이미 이 강의에 수강 등록되어 있습니다.")
 
-    supabase.table("course_enrollments").insert(
-        {"course_id": course_id, "student_id": current_user["id"], "join_method": "INVITE"}
-    ).execute()
+    _execute_with_retry(
+        supabase.table("course_enrollments").insert(
+            {"course_id": course_id, "student_id": current_user["id"], "join_method": "INVITE"}
+        )
+    )
 
-    course_row = (
+    course_row = _execute_with_retry(
         supabase.table("courses")
         .select("course_name")
         .eq("id", course_id)
         .maybe_single()
-        .execute()
     )
-    course_name = course_row.data.get("course_name") if course_row.data else ""
+    course_name = course_row.data.get("course_name") if course_row and course_row.data else ""
     _notify_invite_acceptance(course_id, course_name, current_user["id"])
 
-    enroll_row = (
+    enroll_row = _execute_with_retry(
         supabase.table("course_enrollments")
         .select("joined_at")
         .eq("course_id", course_id)
         .eq("student_id", current_user["id"])
         .maybe_single()
-        .execute()
     )
-    joined_at = enroll_row.data.get("joined_at") if enroll_row.data else datetime.now(timezone.utc).isoformat()
+    joined_at = enroll_row.data.get("joined_at") if enroll_row and enroll_row.data else datetime.now(timezone.utc).isoformat()
 
     return {
         "message": "수강 등록이 완료되었습니다.",
@@ -560,7 +589,7 @@ def get_invite_preview(token: str):
         .maybe_single()
         .execute()
     )
-    if not invite.data:
+    if not invite or not invite.data:
         raise HTTPException(status_code=404, detail="유효하지 않은 초대 코드입니다.")
 
     course_id = invite.data["course_id"]
