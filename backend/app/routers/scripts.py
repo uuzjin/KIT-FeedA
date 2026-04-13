@@ -20,15 +20,15 @@ router = APIRouter(prefix="/api/courses/{course_id}/scripts", tags=["scripts"])
 
 def _format_script(row: dict) -> dict:
     return {
-        "scriptId": row["id"],
-        "courseId": row["course_id"],
+        "scriptId": row.get("id"),
+        "courseId": row.get("course_id"),
         "scheduleId": row.get("schedule_id"),
-        "title": row["title"],
-        "fileName": row["file_name"],
-        "fileSize": row["file_size"],
-        "mimeType": row["mime_type"],
+        "title": row.get("title"),
+        "fileName": row.get("file_name"),
+        "fileSize": row.get("file_size"),
+        "mimeType": row.get("mime_type"),
         "weekNumber": row.get("week_number"),
-        "uploadedAt": row["uploaded_at"],
+        "uploadedAt": row.get("uploaded_at") or row.get("created_at"),
     }
 
 
@@ -45,39 +45,44 @@ async def upload_script(
 ):
     require_instructor_of(course_id, current_user["id"])
 
-    file_id = str(uuid.uuid4())
-    storage_path = f"{course_id}/{file_id}_{file.filename}"
+    try:
+        file_id = str(uuid.uuid4())
+        storage_path = f"{course_id}/{file_id}_{file.filename}"
 
-    await upload_file(file, BUCKET_SCRIPTS, storage_path, ALLOWED_SCRIPT_TYPES, MAX_SCRIPT_SIZE)
+        await upload_file(file, BUCKET_SCRIPTS, storage_path, ALLOWED_SCRIPT_TYPES, MAX_SCRIPT_SIZE)
 
-    result = supabase.table("scripts").insert({
-        "course_id": course_id,
-        "schedule_id": schedule_id,
-        "title": title,
-        "file_name": file.filename,
-        "file_size": file.size or 0,
-        "mime_type": file.content_type,
-        "content_path": storage_path,
-        "week_number": week_number,
-    }).execute()
+        result = supabase.table("scripts").insert({
+            "course_id": course_id,
+            "schedule_id": schedule_id,
+            "title": title,
+            "file_name": file.filename,
+            "file_size": file.size or 0,
+            "mime_type": file.content_type,
+            "content_path": storage_path,
+            "week_number": week_number,
+        }).execute()
 
-    if not result.data:
-        raise HTTPException(status_code=500, detail="스크립트 업로드에 실패했습니다.")
+        if not result.data:
+            raise HTTPException(status_code=500, detail="스크립트 업로드에 실패했습니다.")
 
-    script = result.data[0]
-    script_id = script["id"]
+        script = result.data[0]
+        script_id = script["id"]
 
-    # 분석 레코드 미리 생성 (pending)
-    analysis_rows = [
-        {"script_id": script_id, "analysis_type": t}
-        for t in ("logic", "terminology", "prerequisites")
-    ]
-    supabase.table("script_analyses").insert(analysis_rows).execute()
+        # 분석 레코드 미리 생성 (pending)
+        analysis_rows = [
+            {"script_id": script_id, "analysis_type": t}
+            for t in ("logic", "terminology", "prerequisites")
+        ]
+        supabase.table("script_analyses").insert(analysis_rows).execute()
 
-    # 1단계 분석 background 실행
-    background_tasks.add_task(_run_structural_analysis, script_id, storage_path, file.content_type)
+        # 1단계 분석 background 실행
+        background_tasks.add_task(_run_structural_analysis, script_id, storage_path, file.content_type)
 
-    return _format_script(script)
+        return _format_script(script)
+    
+    except Exception as e:
+        print(f"❌ 스크립트 업로드 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
 
 
 def _run_structural_analysis(script_id: str, storage_path: str, mime_type: str) -> None:
@@ -207,18 +212,22 @@ def list_scripts(
     week_number: int | None = None,
     current_user: dict = Depends(get_current_user),
 ):
-    q = (
-        supabase.table("scripts")
-        .select("*")
-        .eq("course_id", course_id)
-        .order("uploaded_at", desc=True)
-    )
-    if week_number is not None:
-        q = q.eq("week_number", week_number)
+    try:
+        q = (
+            supabase.table("scripts")
+            .select("*")
+            .eq("course_id", course_id)
+            .order("uploaded_at", desc=True)
+        )
+        if week_number is not None:
+            q = q.eq("week_number", week_number)
 
-    result = q.execute()
-    scripts = [_format_script(r) for r in (result.data or [])]
-    return {"scripts": scripts, "totalCount": len(scripts)}
+        result = q.execute()
+        scripts = [_format_script(r) for r in (result.data or [])]
+        return {"scripts": scripts, "totalCount": len(scripts)}
+    except Exception as e:
+        print(f"❌ 스크립트 목록 조회 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail="스크립트 목록을 불러오는 중 서버 오류가 발생했습니다.")
 
 
 # ── 스크립트 상세 조회 ────────────────────────────────────────────────────────

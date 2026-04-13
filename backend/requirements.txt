@@ -1,10 +1,11 @@
+# 중복 제거
 fastapi
 uvicorn[standard]
 pydantic
 pydantic-settings
 supabase
 python-dotenv
-PyJWT[crypto]
+python-jose[cryptography]  
 python-multipart
 httpx
 google-genai
@@ -16,4 +17,3 @@ apscheduler
 slowapi
 pytest
 pytest-asyncio
-httpx

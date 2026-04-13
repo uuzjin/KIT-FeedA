@@ -4,13 +4,15 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     SUPABASE_URL: str
     SUPABASE_KEY: str
-    SUPABASE_JWT_SECRET: str = ""
-    SUPABASE_JWKS_URL: str = ""
-    SUPABASE_JWT_ISSUER: str = ""
-    SUPABASE_SERVICE_KEY: str = ""
+    SUPABASE_JWT_SECRET: str
+    SUPABASE_SERVICE_KEY: str = ""   # auth.admin 작업용 (탈퇴 계정 영구 삭제)
     GOOGLE_API_KEY: str
     WHISPER_MODEL_SIZE: str = "base"
 
+    # ── CORS 허용 도메인 ───────────────────────────────────────────────────────
+    FRONTEND_URL: str = "https://frontend-production-90dc.up.railway.app"
+
+    # ── 이메일 (SMTP) ──────────────────────────────────────────────────────────
     SMTP_HOST: str = ""
     SMTP_PORT: int = 587
     SMTP_USER: str = ""

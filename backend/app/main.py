@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from app.core.config import settings
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
@@ -48,10 +49,13 @@ app.add_middleware(SlowAPIMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_allow_origins(),
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=[
+        "http://localhost:3000",  # 로컬 개발용 프론트엔드 주소
+        settings.FRONTEND_URL,    # Railway에 배포된 프론트엔드 주소
+    ],
+    allow_credentials=True,       # api.ts의 credentials: "include" 와 짝을 맞춤
+    allow_methods=["*"],          # GET, POST, PUT, DELETE 등 모든 메서드 허용
+    allow_headers=["*"],          # Authorization 등 모든 헤더 허용
 )
 
 app.add_exception_handler(AppError, app_error_handler)
