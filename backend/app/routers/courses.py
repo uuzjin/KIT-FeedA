@@ -35,6 +35,59 @@ def _format_course(row: dict) -> dict:
     }
 
 
+def _create_notification(user_id: str, notification_type: str, title: str, body: str, metadata: dict) -> None:
+    supabase.table("notifications").insert({
+        "user_id": user_id,
+        "notification_type": notification_type,
+        "title": title,
+        "body": body,
+        "metadata": metadata,
+        "is_read": False,
+    }).execute()
+
+
+def _notify_invite_acceptance(course_id: str, course_name: str, student_id: str) -> None:
+    metadata = {"courseId": course_id, "studentId": student_id}
+
+    _create_notification(
+        user_id=student_id,
+        notification_type="SYSTEM",
+        title="강의 참여가 완료되었습니다.",
+        body=f"'{course_name}' 강의에 참여했습니다.",
+        metadata=metadata,
+    )
+
+    instructor_rows = (
+        supabase.table("course_instructors")
+        .select("instructor_id")
+        .eq("course_id", course_id)
+        .execute()
+    ).data or []
+
+    profile_row = (
+        supabase.table("profiles")
+        .select("name")
+        .eq("id", student_id)
+        .maybe_single()
+        .execute()
+    )
+    student_name = (profile_row.data or {}).get("name") or "학생"
+
+    instructor_ids = {
+        row["instructor_id"]
+        for row in instructor_rows
+        if row.get("instructor_id")
+    }
+    for instructor_id in instructor_ids:
+        _create_notification(
+            user_id=instructor_id,
+            notification_type="SYSTEM",
+            title="새로운 학생이 강의에 참여했습니다.",
+            body=f"{student_name} 학생이 '{course_name}' 강의에 참여했습니다.",
+            metadata=metadata,
+        )
+
+
 def _accept_invite_for_user(current_user: dict, token: str, expected_course_id: str | None) -> dict:
     if current_user.get("role") != "STUDENT":
         raise HTTPException(status_code=403, detail="학생만 초대 링크로 수강 등록할 수 있습니다.")
@@ -82,6 +135,7 @@ def _accept_invite_for_user(current_user: dict, token: str, expected_course_id: 
         .execute()
     )
     course_name = course_row.data.get("course_name") if course_row.data else ""
+    _notify_invite_acceptance(course_id, course_name, current_user["id"])
 
     enroll_row = (
         supabase.table("course_enrollments")
