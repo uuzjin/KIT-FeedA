@@ -1444,18 +1444,6 @@ export async function publishAnnouncement(
   );
 }
 
-export async function joinCourseByInviteToken(token: string): Promise<{
-  courseId: string;
-  message: string;
-  courseName?: string;
-  joinedAt?: string;
-}> {
-  return request(`/api/courses/join`, {
-    method: "POST",
-    body: JSON.stringify({ token }),
-  });
-}
-
 // ── 수업 사후 분석 (Post-Analysis) ────────────────────────────────────────────
 
 export type PostAnalysisItem = {
