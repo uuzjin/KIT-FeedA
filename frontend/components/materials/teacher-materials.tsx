@@ -33,10 +33,21 @@ import {
   getAudioConvertTask,
   generatePreviewGuide,
   generateReviewSummary,
+  getPostAnalyses,
+  triggerStructureAnalysis,
+  triggerConceptsAnalysis,
   type CourseScriptListItem,
   type PreviewGuide,
   type ReviewSummary,
+  type PostAnalysisItem,
 } from "@/lib/api";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { Loader2 } from "lucide-react";
 import { useCourse } from "@/contexts/course-context";
 import { CourseInfoBanner } from "@/components/layout/course-info-banner";
 
@@ -63,6 +74,16 @@ export function TeacherMaterials() {
   
   const [isStartingConvert, setIsStartingConvert] = useState(false);
   const [isUploadingScript, setIsUploadingScript] = useState(false);
+
+  // 수업 후 분석 상태
+  const [postAnalysisSheet, setPostAnalysisSheet] = useState<{
+    open: boolean;
+    scriptId: string | null;
+    scriptTitle: string;
+    analyses: PostAnalysisItem[];
+    loading: boolean;
+    triggering: string | null; // "structure" | "concepts" | null
+  }>({ open: false, scriptId: null, scriptTitle: "", analyses: [], loading: false, triggering: null });
   
   const scriptInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
@@ -278,6 +299,36 @@ export function TeacherMaterials() {
     } finally {
       setIsUploadingScript(false);
       if (e.target) e.target.value = "";
+    }
+  };
+
+  const handleOpenPostAnalysis = async (scriptId: string, scriptTitle: string) => {
+    if (!courseId) return;
+    setPostAnalysisSheet({ open: true, scriptId, scriptTitle, analyses: [], loading: true, triggering: null });
+    try {
+      const data = await getPostAnalyses(courseId, scriptId);
+      setPostAnalysisSheet((prev) => ({ ...prev, analyses: data.postAnalyses, loading: false }));
+    } catch {
+      setPostAnalysisSheet((prev) => ({ ...prev, loading: false }));
+    }
+  };
+
+  const handleTriggerAnalysis = async (type: "structure" | "concepts") => {
+    const { scriptId } = postAnalysisSheet;
+    if (!courseId || !scriptId) return;
+    setPostAnalysisSheet((prev) => ({ ...prev, triggering: type }));
+    try {
+      if (type === "structure") {
+        await triggerStructureAnalysis(courseId, scriptId);
+      } else {
+        await triggerConceptsAnalysis(courseId, scriptId);
+      }
+      // 잠시 후 결과 폴링
+      await new Promise((r) => setTimeout(r, 1500));
+      const data = await getPostAnalyses(courseId, scriptId);
+      setPostAnalysisSheet((prev) => ({ ...prev, analyses: data.postAnalyses, triggering: null }));
+    } catch {
+      setPostAnalysisSheet((prev) => ({ ...prev, triggering: null }));
     }
   };
 
@@ -622,8 +673,9 @@ export function TeacherMaterials() {
                           size="sm"
                           variant="default"
                           className="w-full sm:w-auto"
+                          onClick={() => handleOpenPostAnalysis(script.id, script.title)}
                         >
-                          {"리포트 보기"}
+                          {"수업 후 분석"}
                         </Button>
                       </div>
                     )}
@@ -634,6 +686,164 @@ export function TeacherMaterials() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* 수업 후 분석 시트 */}
+      <Sheet
+        open={postAnalysisSheet.open}
+        onOpenChange={(open) => setPostAnalysisSheet((prev) => ({ ...prev, open }))}
+      >
+        <SheetContent side="bottom" className="h-[85vh] overflow-y-auto rounded-t-2xl">
+          <SheetHeader className="mb-4">
+            <SheetTitle className="text-base">{"수업 후 분석"}</SheetTitle>
+            <p className="text-sm text-muted-foreground line-clamp-1">{postAnalysisSheet.scriptTitle}</p>
+          </SheetHeader>
+
+          {postAnalysisSheet.loading && (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="size-6 animate-spin text-primary" />
+            </div>
+          )}
+
+          {!postAnalysisSheet.loading && (
+            <div className="flex flex-col gap-4">
+              {/* 구조 분석 */}
+              <PostAnalysisCard
+                label="수업 흐름 구조 분석"
+                type="structure"
+                item={postAnalysisSheet.analyses.find((a) => a.analysisType === "structure") ?? null}
+                triggering={postAnalysisSheet.triggering === "structure"}
+                onTrigger={() => handleTriggerAnalysis("structure")}
+              />
+              {/* 개념어 체크 */}
+              <PostAnalysisCard
+                label="핵심 개념어 체크"
+                type="concepts"
+                item={postAnalysisSheet.analyses.find((a) => a.analysisType === "concepts") ?? null}
+                triggering={postAnalysisSheet.triggering === "concepts"}
+                onTrigger={() => handleTriggerAnalysis("concepts")}
+              />
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
+  );
+}
+
+// ── 수업 후 분석 카드 서브컴포넌트 ───────────────────────────────────────────
+
+function PostAnalysisCard({
+  label,
+  type,
+  item,
+  triggering,
+  onTrigger,
+}: {
+  label: string;
+  type: "structure" | "concepts";
+  item: PostAnalysisItem | null;
+  triggering: boolean;
+  onTrigger: () => void;
+}) {
+  const isPending = item?.status === "pending" || item?.status === "processing";
+
+  return (
+    <Card className="border-border/40">
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="font-medium text-foreground">{label}</h4>
+          {!item || item.status === "failed" ? (
+            <Button size="sm" onClick={onTrigger} disabled={triggering} className="gap-1.5">
+              {triggering ? <Loader2 className="size-3 animate-spin" /> : <Sparkles className="size-3" />}
+              {triggering ? "분석 중..." : "분석 시작"}
+            </Button>
+          ) : isPending ? (
+            <Badge variant="secondary" className="gap-1">
+              <Loader2 className="size-3 animate-spin" />
+              {"처리 중"}
+            </Badge>
+          ) : (
+            <Badge className="bg-emerald-500 text-white">{"완료"}</Badge>
+          )}
+        </div>
+
+        {item?.status === "failed" && (
+          <p className="text-xs text-destructive">{item.errorMessage ?? "분석 실패"}</p>
+        )}
+
+        {isPending && (
+          <p className="text-xs text-muted-foreground">{"AI가 분석 중입니다. 잠시 후 다시 확인하세요."}</p>
+        )}
+
+        {item?.status === "completed" && item.result && type === "structure" && (
+          <div className="flex flex-col gap-2">
+            {item.result.overall_comment && (
+              <p className="text-sm text-muted-foreground">{item.result.overall_comment}</p>
+            )}
+            {item.result.flow_score !== undefined && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">{"흐름 점수"}</span>
+                <Progress value={item.result.flow_score} className="h-1.5 flex-1" />
+                <span className="text-xs font-medium">{item.result.flow_score}{"점"}</span>
+              </div>
+            )}
+            {item.result.structure_map?.map((phase, i) => (
+              <div key={i} className="rounded-lg bg-muted/50 p-3">
+                <Badge variant="outline" className="mb-1 text-xs">{phase.phase}</Badge>
+                <p className="text-xs text-foreground">{phase.description}</p>
+                {phase.weakness && (
+                  <p className="mt-1 text-xs text-amber-600">{"⚠ "}{phase.weakness}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {item?.status === "completed" && item.result && type === "concepts" && (
+          <div className="flex flex-col gap-2">
+            {item.result.overall_comment && (
+              <p className="text-sm text-muted-foreground">{item.result.overall_comment}</p>
+            )}
+            {item.result.coverage_score !== undefined && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">{"개념 전달률"}</span>
+                <Progress value={item.result.coverage_score} className="h-1.5 flex-1" />
+                <span className="text-xs font-medium">{item.result.coverage_score}{"점"}</span>
+              </div>
+            )}
+            {item.result.covered_concepts?.map((c, i) => (
+              <div key={i} className="flex items-start gap-2 rounded-lg bg-muted/50 p-2">
+                <Badge
+                  variant="outline"
+                  className={`shrink-0 text-xs ${
+                    c.coverage === "충분" ? "text-emerald-600" : c.coverage === "부족" ? "text-amber-600" : "text-destructive"
+                  }`}
+                >
+                  {c.coverage}
+                </Badge>
+                <div>
+                  <p className="text-xs font-medium text-foreground">{c.concept}</p>
+                  <p className="text-xs text-muted-foreground">{c.note}</p>
+                </div>
+              </div>
+            ))}
+            {(item.result.missing_concepts?.length ?? 0) > 0 && (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+                <p className="mb-1 text-xs font-medium text-destructive">{"누락된 핵심 개념"}</p>
+                <div className="flex flex-wrap gap-1">
+                  {item.result.missing_concepts!.map((c, i) => (
+                    <Badge key={i} variant="outline" className="text-xs text-destructive">{c}</Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {!item && !triggering && (
+          <p className="text-xs text-muted-foreground">{"아직 분석이 실행되지 않았습니다."}</p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
