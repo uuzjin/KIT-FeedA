@@ -234,12 +234,13 @@ export function TeacherMaterials() {
     if (!courseId) return;
     try {
       await generatePreviewGuide(courseId, scheduleId);
-      alert("예습 자료 생성 요청이 성공적으로 전송되었습니다.");
+      alert("예습 자료 생성 요청이 성공적으로 전송되었습니다. AI 분석에 약 1~2분이 소요됩니다.");
       // Refresh
       const preview = await getPreviewGuide(courseId, scheduleId).catch(() => null);
       setSchedules(prev => prev.map(s => s.scheduleId === scheduleId ? { ...s, preview } : s));
-    } catch (e) {
-      alert("예습 자료 생성 중 오류가 발생했습니다.");
+    } catch (e: any) {
+      console.error("Preview generation failed:", e);
+      alert(`예습 자료 생성 중 오류가 발생했습니다: ${e.message || "서버 응답 없음"}`);
     }
   };
 
@@ -247,12 +248,13 @@ export function TeacherMaterials() {
     if (!courseId) return;
     try {
       await generateReviewSummary(courseId, scheduleId);
-      alert("복습 자료 생성 요청이 성공적으로 전송되었습니다.");
+      alert("복습 자료 생성 요청이 성공적으로 전송되었습니다. AI 분석에 약 1~2분이 소요됩니다.");
       // Refresh
       const review = await getReviewSummary(courseId, scheduleId).catch(() => null);
       setSchedules(prev => prev.map(s => s.scheduleId === scheduleId ? { ...s, review } : s));
-    } catch (e) {
-      alert("복습 자료 생성 중 오류가 발생했습니다.");
+    } catch (e: any) {
+      console.error("Review generation failed:", e);
+      alert(`복습 자료 생성 중 오류가 발생했습니다: ${e.message || "서버 응답 없음"}`);
     }
   };
 

@@ -50,6 +50,21 @@ async def upload_script(
 ):
     require_instructor_of(course_id, current_user["id"])
 
+    # schedule_id가 없는 경우 자동으로 첫 번째 스케줄 할당 시도
+    if not schedule_id:
+        schedules_res = (
+            supabase.table("course_schedules")
+            .select("id, week_number")
+            .eq("course_id", course_id)
+            .order("week_number")
+            .limit(1)
+            .execute()
+        )
+        if schedules_res.data:
+            schedule_id = schedules_res.data[0]["id"]
+            if not week_number:
+                week_number = schedules_res.data[0]["week_number"]
+
     try:
         file_id = str(uuid.uuid4())
         storage_path = f"{course_id}/{file_id}_{file.filename}"
