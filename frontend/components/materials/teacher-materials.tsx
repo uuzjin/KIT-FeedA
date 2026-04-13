@@ -31,6 +31,7 @@ import {
   uploadScript,
   uploadAudio,
   getAudioConvertTask,
+  listAudios,
   generatePreviewGuide,
   generateReviewSummary,
   getPostAnalyses,
@@ -40,6 +41,7 @@ import {
   type PreviewGuide,
   type ReviewSummary,
   type PostAnalysisItem,
+  type AudioItem,
 } from "@/lib/api";
 import {
   Sheet,
@@ -72,7 +74,15 @@ export function TeacherMaterials() {
 
   const [activeTab, setActiveTab] = useState("preview");
   const [audioTask, setAudioTask] = useState<any | null>(null);
-  
+  const [audioList, setAudioList] = useState<AudioItem[]>([]);
+  const [transcriptSheet, setTranscriptSheet] = useState<{
+    open: boolean;
+    audioId: string | null;
+    fileName: string;
+    transcript: string | null;
+    loading: boolean;
+  }>({ open: false, audioId: null, fileName: "", transcript: null, loading: false });
+
   const [isStartingConvert, setIsStartingConvert] = useState(false);
   const [isUploadingScript, setIsUploadingScript] = useState(false);
 
@@ -95,9 +105,10 @@ export function TeacherMaterials() {
 
     const loadData = async () => {
       try {
-        const [schedulesRes, scriptsRes] = await Promise.all([
+        const [schedulesRes, scriptsRes, audiosRes] = await Promise.all([
           getCourseSchedules(courseId),
           getCourseScripts(courseId),
+          listAudios(courseId).catch(() => ({ audios: [], totalCount: 0 })),
         ]);
 
         // Fetch preview/review for each schedule in parallel (null = not generated yet)
@@ -118,7 +129,8 @@ export function TeacherMaterials() {
         );
 
         setSchedules(scheduleData);
-        
+        setAudioList(audiosRes.audios);
+
         const list = scriptsRes.scripts;
         if (Array.isArray(list)) {
           setScripts(
@@ -143,22 +155,28 @@ export function TeacherMaterials() {
   }, [courseId]);
 
   // ── 오디오 변환 상태: Supabase Realtime 구독 ──
-  // audios 테이블의 해당 레코드가 UPDATE되면 즉시 상태 반영
+  // course_id로 필터링하여 해당 강의의 모든 오디오 상태를 감시
+  const hasPendingAudio = audioList.some(
+    (a) => a.status !== "COMPLETED" && a.status !== "FAILED",
+  );
   useRealtimeSubscription({
     table: "audios",
-    filter: audioTask?.audioId ? `id=eq.${audioTask.audioId}` : undefined,
+    filter: courseId ? `course_id=eq.${courseId}` : undefined,
     event: "UPDATE",
-    enabled: !!courseId && !!audioTask?.audioId &&
-      audioTask.status !== "COMPLETED" && audioTask.status !== "FAILED",
+    enabled: !!courseId && hasPendingAudio,
     onUpdate: (payload) => {
       const row = payload.new;
-      setAudioTask((prev: typeof audioTask) => prev
-        ? {
-            ...prev,
-            status: (row.status as string) ?? prev.status,
-            transcriptText: (row.transcript_text as string | undefined) ?? prev.transcriptText,
-          }
-        : prev,
+      setAudioTask((prev: typeof audioTask) =>
+        prev?.audioId === row.id
+          ? { ...prev, status: (row.status as string) ?? prev.status }
+          : prev,
+      );
+      setAudioList((prev) =>
+        prev.map((a) =>
+          a.audioId === row.id
+            ? { ...a, status: (row.status as string) ?? a.status }
+            : a,
+        ),
       );
     },
   });
@@ -245,13 +263,16 @@ export function TeacherMaterials() {
     setIsStartingConvert(true);
     try {
       const data = await uploadAudio(courseId, file);
-      setAudioTask({
+      const newAudio: AudioItem = {
         audioId: data.audioId,
+        courseId,
         fileName: data.fileName,
         status: data.status,
         transcriptPreview: null,
         createdAt: new Date().toISOString(),
-      });
+      };
+      setAudioTask(newAudio);
+      setAudioList((prev) => [newAudio, ...prev]);
       setActiveTab("scripts");
     } catch (error) {
       console.error(error);
@@ -304,6 +325,16 @@ export function TeacherMaterials() {
       setPostAnalysisSheet((prev) => ({ ...prev, analyses: data.postAnalyses, loading: false }));
     } catch {
       setPostAnalysisSheet((prev) => ({ ...prev, loading: false }));
+    }
+  };
+
+  const handleOpenTranscript = async (audio: AudioItem) => {
+    setTranscriptSheet({ open: true, audioId: audio.audioId, fileName: audio.fileName, transcript: null, loading: true });
+    try {
+      const data = await getAudioConvertTask(courseId!, audio.audioId);
+      setTranscriptSheet((prev) => ({ ...prev, transcript: data.transcript ?? null, loading: false }));
+    } catch {
+      setTranscriptSheet((prev) => ({ ...prev, loading: false }));
     }
   };
 
@@ -408,20 +439,41 @@ export function TeacherMaterials() {
         </CardContent>
       </Card>
 
-      {audioTask && (
+      {/* 오디오 목록 */}
+      {audioList.length > 0 && (
         <Card className="border-border/40">
-          <CardContent className="space-y-2 p-4">
-            <p className="text-sm text-muted-foreground">
-              {"음성 변환: "}
-              {audioTask.fileName}
-              {" · "}
-              {audioTask.status === "COMPLETED" ? "완료" : "처리 중"}
-            </p>
-            {audioTask.transcriptPreview && (
-              <p className="text-xs text-muted-foreground line-clamp-2">
-                {audioTask.transcriptPreview}
-              </p>
-            )}
+          <CardContent className="p-4">
+            <p className="mb-3 text-sm font-medium text-foreground">{"음성 변환 목록"}</p>
+            <div className="flex flex-col gap-2">
+              {audioList.map((audio) => (
+                <div
+                  key={audio.audioId}
+                  className="flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Mic className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate text-sm">{audio.fileName}</span>
+                    {audio.status === "COMPLETED" ? (
+                      <CheckCircle className="size-4 shrink-0 text-emerald-500" />
+                    ) : audio.status === "FAILED" ? (
+                      <AlertTriangle className="size-4 shrink-0 text-destructive" />
+                    ) : (
+                      <Loader2 className="size-4 shrink-0 animate-spin text-primary" />
+                    )}
+                  </div>
+                  {audio.status === "COMPLETED" && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="shrink-0 text-xs"
+                      onClick={() => handleOpenTranscript(audio)}
+                    >
+                      {"내용 보기"}
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
           </CardContent>
         </Card>
       )}
@@ -680,6 +732,33 @@ export function TeacherMaterials() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* 트랜스크립트 보기 시트 */}
+      <Sheet
+        open={transcriptSheet.open}
+        onOpenChange={(open) => setTranscriptSheet((prev) => ({ ...prev, open }))}
+      >
+        <SheetContent side="bottom" className="h-[80vh] overflow-y-auto rounded-t-2xl">
+          <SheetHeader className="mb-4">
+            <SheetTitle className="text-base">{"음성 트랜스크립트"}</SheetTitle>
+            <p className="text-sm text-muted-foreground line-clamp-1">{transcriptSheet.fileName}</p>
+          </SheetHeader>
+          {transcriptSheet.loading && (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="size-6 animate-spin text-primary" />
+            </div>
+          )}
+          {!transcriptSheet.loading && (
+            transcriptSheet.transcript ? (
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+                {transcriptSheet.transcript}
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">{"트랜스크립트를 불러올 수 없습니다."}</p>
+            )
+          )}
+        </SheetContent>
+      </Sheet>
 
       {/* 수업 후 분석 시트 */}
       <Sheet
