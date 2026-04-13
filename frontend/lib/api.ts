@@ -546,7 +546,9 @@ export type CourseInvitePreview = {
   isExpired: boolean;
 };
 
-export async function getInvitePreview(token: string): Promise<CourseInvitePreview> {
+export async function getInvitePreview(
+  token: string,
+): Promise<CourseInvitePreview> {
   return request<CourseInvitePreview>(`/api/courses/invites/${token}`, {
     method: "GET",
     requiresAuth: false,
@@ -605,56 +607,84 @@ export async function syncLmsStudents(
   });
 }
 
-// Notification settings — scoped to userId
-// Merges /api/users/{userId}/notifications/channels + preferences
-export async function getNoticeSettings(userId: string): Promise<NoticeSettings> {
-  const [channelsRes, prefsRes] = await Promise.all([
-    request<{ channels: string[] }>(`/api/users/${userId}/notifications/channels`),
-    request<{ preferences: Array<{ notificationType: string; enabled: boolean }> }>(
-      `/api/users/${userId}/notifications/preferences`,
-    ),
-  ]);
-  const quizPref = prefsRes.preferences?.find((p) => p.notificationType === "QUIZ");
-  return {
-    channels: channelsRes.channels ?? [],
-    deadline_hours_before: 24,
-    quiz_notifications: quizPref?.enabled ?? true,
+export async function getNoticeSettings() {
+  return request<NoticeSettings>("/api/notices/settings");
+}
+
+export async function updateNoticeSettings(payload: NoticeSettings) {
+  return request<{ message: string; settings: NoticeSettings }>(
+    "/api/notices/settings",
+    {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
+export async function getLatestQuiz() {
+  return request<QuizLatest>("/api/quiz/latest");
+}
+
+export async function generateQuiz(payload: QuizGeneratePayload) {
+  return request<{ message: string; quiz: QuizLatest; difficulty: string }>(
+    "/api/quiz/generate",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
+export async function uploadAudio(
+  courseId: string,
+  file: File,
+): Promise<{ audioId: string; status: string; estimatedSeconds: number }> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const authHeaders = await getAuthHeaders();
+  const response = await fetch(
+    `${resolveApiBaseUrl()}/api/courses/${courseId}/audios`,
+    {
+      method: "POST",
+      headers: {
+        ...(authHeaders.Authorization
+          ? { Authorization: authHeaders.Authorization }
+          : {}),
+      },
+      body: formData,
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(`오디오 업로드 실패 (${response.status})`);
+  }
+
+  return (await response.json()) as {
+    audioId: string;
+    status: string;
+    estimatedSeconds: number;
   };
 }
 
-export async function updateNoticeSettings(
-  userId: string,
-  payload: NoticeSettings,
-): Promise<{ message: string; settings: NoticeSettings }> {
-  await request(`/api/users/${userId}/notifications/channels`, {
-    method: "PUT",
-    body: JSON.stringify({ channels: payload.channels }),
+export async function getAudioConvertTask(courseId: string, audioId: string) {
+  return request<{
+    audioId: string;
+    status: string;
+    transcript?: string;
+    completedAt?: string;
+  }>(`/api/courses/${courseId}/audios/${audioId}/transcripts`);
+}
+
+export async function getAnalysisReport() {
+  return Promise.resolve<AnalysisReport>({
+    source_file: "대기 중인 파일",
+    logical_gaps: 0,
+    missing_terms: [],
+    missing_prerequisites: [],
+    suggestions: ["분석 API는 getScriptAnalysis()로 연결해야 합니다."],
   });
-  return { message: "저장되었습니다.", settings: payload };
 }
-
-// Audio — course-scoped (replaces old /api/materials/audio-convert)
-export type AudioItem = {
-  audioId: string;
-  courseId: string;
-  fileName: string;
-  status: string; // PENDING | PROCESSING | COMPLETED | FAILED
-  transcriptPreview: string | null;
-  createdAt: string;
-};
-
-export async function getAudio(courseId: string, audioId: string): Promise<AudioItem> {
-  return request<AudioItem>(`/api/courses/${courseId}/audios/${audioId}`);
-}
-
-// createAudioConvertTask / getAudioConvertTask: removed (wrong endpoints).
-// Use direct fetch with FormData for upload (see teacher-materials.tsx),
-// then poll with getAudio(courseId, audioId).
-
-// getLatestQuiz / generateQuiz: removed (endpoints do not exist in backend).
-// Use getCourseQuizzes(courseId) and createQuiz(courseId, payload).
-
-// getAnalysisReport: removed (no generic endpoint). Use getScriptAnalysis(courseId, scriptId).
 
 // User Profile APIs
 export async function getUserProfile(userId: string): Promise<UserProfile> {
@@ -678,15 +708,18 @@ export async function updateUserProfile(
   }
 
   const authHeaders = await getAuthHeaders();
-  const response = await fetch(`${resolveApiBaseUrl()}/api/users/${userId}/profile`, {
-    method: "PUT",
-    headers: {
-      ...(authHeaders.Authorization
-        ? { Authorization: authHeaders.Authorization }
-        : {}),
+  const response = await fetch(
+    `${resolveApiBaseUrl()}/api/users/${userId}/profile`,
+    {
+      method: "PUT",
+      headers: {
+        ...(authHeaders.Authorization
+          ? { Authorization: authHeaders.Authorization }
+          : {}),
+      },
+      body: formData,
     },
-    body: formData,
-  });
+  );
 
   if (!response.ok) {
     let message = `프로필 수정 실패 (${response.status})`;
@@ -719,7 +752,7 @@ export async function getStudentQuizHistory(courseId?: string): Promise<{
 }> {
   const params = new URLSearchParams();
   if (courseId) {
-    params.append("courseId", courseId);
+    params.append("course_id", courseId);
   }
   return request<{
     history: QuizSubmissionHistory[];
@@ -735,7 +768,7 @@ export async function getStudentMaterials(courseId?: string): Promise<{
 }> {
   const params = new URLSearchParams();
   if (courseId) {
-    params.append("courseId", courseId);
+    params.append("course_id", courseId);
   }
   return request<{
     materials: StudentMaterialItem[];
@@ -754,7 +787,7 @@ export async function getInstructorComprehensionTrends(
 }> {
   const params = new URLSearchParams();
   if (courseId) {
-    params.append("courseId", courseId);
+    params.append("course_id", courseId);
   }
   return request<{
     trends: ComprehensionTrendItem[];
@@ -769,7 +802,7 @@ export async function getInstructorWeakTopics(courseId?: string): Promise<{
 }> {
   const params = new URLSearchParams();
   if (courseId) {
-    params.append("courseId", courseId);
+    params.append("course_id", courseId);
   }
   return request<{
     weakTopics: WeakTopicItem[];
@@ -784,7 +817,7 @@ export async function getInstructorUploadStatus(courseId?: string): Promise<{
 }> {
   const params = new URLSearchParams();
   if (courseId) {
-    params.append("courseId", courseId);
+    params.append("course_id", courseId);
   }
   return request<{
     uploadStatus: UploadStatusItem[];
@@ -984,10 +1017,14 @@ export async function uploadScript(
     file: File;
     weekNumber?: number;
     topic?: string;
+    title?: string;
   },
 ): Promise<{ scriptId: string; status: string; message: string }> {
   const formData = new FormData();
   formData.append("file", payload.file);
+  if (payload.title) {
+    formData.append("title", payload.title);
+  }
   if (payload.weekNumber) {
     formData.append("weekNumber", payload.weekNumber.toString());
   }

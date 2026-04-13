@@ -26,42 +26,35 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  getCourses,
-  getAudio,
-  type Course,
-  type AudioConvertTask,
+  getAnalysisReport,
+  getAudioConvertTask,
+  uploadAudio,
+  uploadScript,
+  getCourseScripts,
+  type AnalysisReport,
 } from "@/lib/api";
 import { supabase } from "@/lib/supabase/client";
+import { useCourse } from "@/contexts/course-context";
+import { CourseInfoBanner } from "@/components/layout/course-info-banner";
 
 export function TeacherMaterials() {
-  const [courses, setCourses] = useState<Course[]>([]);
-  const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
+  const { courses, selectedCourse, setSelectedCourse } = useCourse();
+  const courseId = selectedCourse?.courseId;
+
+  // TODO: 실제 환경에서는 백엔드 API를 호출하여 데이터를 설정해야 합니다.
   const [previewMaterials, setPreviewMaterials] = useState<any[]>([]);
   const [reviewMaterials, setReviewMaterials] = useState<any[]>([]);
   const [scripts, setScripts] = useState<any[]>([]);
 
   const [activeTab, setActiveTab] = useState("preview");
-  const [audioTask, setAudioTask] = useState<AudioConvertTask | null>(null);
+  const [audioTask, setAudioTask] = useState<any | null>(null);
+  const [analysisReport, setAnalysisReport] = useState<AnalysisReport | null>(
+    null,
+  );
   const [isStartingConvert, setIsStartingConvert] = useState(false);
   const [isUploadingScript, setIsUploadingScript] = useState(false);
   const scriptInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
-
-  // Active courseId — use selected course if set, otherwise first from list
-  const courseId = selectedCourseId ?? courses[0]?.courseId ?? null;
-
-  // Load instructor's courses on mount
-  useEffect(() => {
-    const loadCourses = async () => {
-      try {
-        const res = await getCourses();
-        setCourses(res.courses ?? []);
-      } catch (err) {
-        console.error("강의 목록 로드 실패:", err);
-      }
-    };
-    void loadCourses();
-  }, []);
 
   useEffect(() => {
     if (!courseId) return;
@@ -73,6 +66,14 @@ export function TeacherMaterials() {
           .select("*")
           .eq("course_id", courseId)
           .order("created_at", { ascending: false });
+
+        if (previewError) {
+          console.error(
+            "❌ [Supabase 400 에러] 예습 자료 조회 실패:",
+            previewError.message,
+            previewError.details,
+          );
+        }
 
         if (!previewError && previewData) {
           setPreviewMaterials(
@@ -94,6 +95,14 @@ export function TeacherMaterials() {
           .eq("course_id", courseId)
           .order("created_at", { ascending: false });
 
+        if (reviewError) {
+          console.error(
+            "❌ [Supabase 400 에러] 복습 자료 조회 실패:",
+            reviewError.message,
+            reviewError.details,
+          );
+        }
+
         if (!reviewError && reviewData) {
           setReviewMaterials(
             reviewData.map((r) => ({
@@ -108,30 +117,20 @@ export function TeacherMaterials() {
         }
 
         // 3. 스크립트/음성 목록 조회 (백엔드 API 호출)
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        const headers: Record<string, string> = {};
-        if (session?.access_token) {
-          headers["Authorization"] = `Bearer ${session.access_token}`;
-        }
-
-        const res = await fetch(
-          `${process.env.NEXT_PUBLIC_API_BASE_URL || ""}/api/courses/${courseId}/scripts`,
-          { headers },
-        );
-
-        if (res.ok) {
-          const scriptData = await res.json();
-          const list = scriptData.scripts || scriptData; // 백엔드 응답 포맷 대응
+        try {
+          const scriptData = await getCourseScripts(courseId);
+          const list = scriptData.scripts;
           if (Array.isArray(list)) {
             setScripts(
               list.map((s: any) => ({
-                id: s.id,
-                title: s.title || s.file_name || "업로드된 스크립트",
-                format: (s.file_name?.split(".").pop() || "문서").toUpperCase(),
+                id: s.scriptId || s.id,
+                title:
+                  s.title || s.fileName || s.file_name || "업로드된 스크립트",
+                format: (
+                  (s.fileName || s.file_name || "").split(".").pop() || "문서"
+                ).toUpperCase(),
                 uploadDate: new Date(
-                  s.created_at || Date.now(),
+                  s.uploadedAt || s.created_at || Date.now(),
                 ).toLocaleDateString(),
                 status: s.status === "completed" ? "completed" : "analyzing",
                 progress: s.progress || 0,
@@ -139,6 +138,8 @@ export function TeacherMaterials() {
               })),
             );
           }
+        } catch (e) {
+          console.error("스크립트 목록 조회 실패:", e);
         }
       } catch (error) {
         console.error("강의 자료 데이터를 불러오는 중 오류 발생:", error);
@@ -146,30 +147,30 @@ export function TeacherMaterials() {
     };
 
     void fetchMaterialsData();
+
+    const loadReport = async () => {
+      try {
+        const report = await getAnalysisReport();
+        setAnalysisReport(report);
+      } catch {
+        // fallback to local demo
+      }
+    };
+    void loadReport();
   }, [courseId]);
 
-  // Poll audio transcription status using the correct course-scoped endpoint
   useEffect(() => {
-    if (!audioTask || !courseId || audioTask.status === "completed") {
+    if (!courseId || !audioTask || audioTask.status === "completed") {
       return;
     }
 
     const intervalId = window.setInterval(async () => {
       try {
-        const item = await getAudio(courseId, audioTask.task_id);
-        // Map AudioItem → AudioConvertTask shape used by the component
-        setAudioTask((prev) =>
-          prev
-            ? {
-                ...prev,
-                status: item.status === "COMPLETED" ? "completed" : "processing",
-                transcript_preview: item.transcriptPreview,
-              }
-            : prev,
+        const task = await getAudioConvertTask(
+          courseId,
+          audioTask.audioId || audioTask.task_id,
         );
-        if (item.status === "COMPLETED" || item.status === "FAILED") {
-          window.clearInterval(intervalId);
-        }
+        setAudioTask(task);
       } catch {
         window.clearInterval(intervalId);
       }
@@ -183,35 +184,13 @@ export function TeacherMaterials() {
     if (!file) return;
 
     setIsStartingConvert(true);
-    const formData = new FormData();
-    formData.append("file", file);
     try {
-      // Supabase 세션에서 유효한 JWT 토큰 가져오기
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      const data = await uploadAudio(courseId as string, file);
 
-      const headers: Record<string, string> = {};
-      if (session?.access_token) {
-        headers["Authorization"] = `Bearer ${session.access_token}`;
-      }
-
-      // api.ts 대신 직접 fetch를 사용하여 FormData 전송
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL || ""}/api/courses/${courseId}/audios`,
-        {
-          method: "POST",
-          body: formData,
-          headers,
-        },
-      );
-      if (!res.ok) throw new Error("오디오 업로드 실패");
-
-      const data = await res.json();
       // 백엔드 응답을 프론트엔드 상태에 맞게 매핑
       setAudioTask({
-        task_id: data.audioId,
-        file_name: data.fileName,
+        audioId: data.audioId,
+        file_name: file.name,
         status: data.status,
         progress: 0,
         transcript_preview: null,
@@ -232,30 +211,9 @@ export function TeacherMaterials() {
     if (!file) return;
 
     setIsUploadingScript(true);
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("title", file.name); // 백엔드에서 title을 필수로 요구함
 
     try {
-      // Supabase 세션에서 유효한 JWT 토큰 가져오기
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      const headers: Record<string, string> = {};
-      if (session?.access_token) {
-        headers["Authorization"] = `Bearer ${session.access_token}`;
-      }
-
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL || ""}/api/courses/${courseId}/scripts`,
-        {
-          method: "POST",
-          body: formData,
-          headers,
-        },
-      );
-      if (!res.ok) throw new Error("스크립트 업로드 실패");
+      await uploadScript(courseId as string, { file, title: file.name });
 
       alert("스크립트가 성공적으로 업로드되어 AI 분석이 시작되었습니다!");
       setActiveTab("scripts");
@@ -270,6 +228,8 @@ export function TeacherMaterials() {
 
   return (
     <div className="flex flex-col gap-5 p-4 pb-24">
+      <CourseInfoBanner />
+
       {/* 페이지 헤더 */}
       <div className="flex items-center justify-between">
         <div>
@@ -290,7 +250,7 @@ export function TeacherMaterials() {
           {courses.map((c) => (
             <button
               key={c.courseId}
-              onClick={() => setSelectedCourseId(c.courseId)}
+              onClick={() => setSelectedCourse(c)}
               className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
                 courseId === c.courseId
                   ? "border-primary bg-primary text-primary-foreground"
