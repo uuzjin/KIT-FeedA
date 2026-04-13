@@ -35,14 +35,14 @@ def _calc_overall_trend(weekly_stats: list[dict]) -> str:
 # ── 9.1.1 강의별 이해도 추이 ──────────────────────────────────────────────────
 @router.get("/instructors/comprehension-trends")
 def get_comprehension_trends(
-    courseId: str | None = None,
+    course_id: str | None = None,
     semester: str | None = None,
     current_user: dict = Depends(require_instructor),
 ):
     user_id = current_user["id"]
 
-    if courseId:
-        course_ids = [courseId]
+    if course_id:
+        course_ids = [course_id]
     else:
         course_ids = _get_course_ids_for_instructor(user_id)
 
@@ -67,7 +67,7 @@ def get_comprehension_trends(
                 "participationRate": w.get("participationRate"),
                 "quizId": w.get("quizId"),
             }
-            if not courseId:
+            if not course_id:
                 entry["courseId"] = snap["course_id"]
             trends.append(entry)
 
@@ -77,14 +77,14 @@ def get_comprehension_trends(
 # ── 9.1.2 취약 토픽 요약 ──────────────────────────────────────────────────────
 @router.get("/instructors/weak-topics")
 def get_weak_topics(
-    courseId: str | None = None,
+    course_id: str | None = None,
     limit: int = 10,
     current_user: dict = Depends(require_instructor),
 ):
     user_id = current_user["id"]
 
-    if courseId:
-        course_ids = [courseId]
+    if course_id:
+        course_ids = [course_id]
     else:
         course_ids = _get_course_ids_for_instructor(user_id)
 
@@ -112,35 +112,58 @@ def get_weak_topics(
 # ── 9.1.3 자료 업로드 현황 ────────────────────────────────────────────────────
 @router.get("/instructors/upload-status")
 def get_upload_status(
-    courseId: str | None = None,
+    course_id: str | None = None,
     semester: str | None = None,
     current_user: dict = Depends(require_instructor),
 ):
     user_id = current_user["id"]
 
-    if courseId:
-        course_ids = [courseId]
+    if course_id:
+        course_ids = [course_id]
     else:
         course_ids = _get_course_ids_for_instructor(user_id)
 
     if not course_ids:
         return {"uploadStatus": [], "completionRate": 0.0}
 
-    snapshots = (
-        supabase.table("dashboard_snapshots")
-        .select("course_id, uploaded_weeks, total_weeks, weekly_stats")
-        .in_("course_id", course_ids)
-        .execute()
-    )
+    try:
+        snapshots = (
+            supabase.table("dashboard_snapshots")
+            .select("*")
+            .in_("course_id", course_ids)
+            .execute()
+        )
+        data = snapshots.data or []
+    except Exception as e:
+        print(f"Error fetching dashboard_snapshots: {e}")
+        data = []
 
     upload_status = []
     total_uploaded = 0
     total_weeks = 0
 
-    for snap in (snapshots.data or []):
-        total_uploaded += snap.get("uploaded_weeks", 0)
-        total_weeks += snap.get("total_weeks", 16)
-        for w in (snap.get("weekly_stats") or []):
+    for snap in data:
+        try:
+            total_uploaded += int(snap.get("uploaded_weeks") or 0)
+        except (ValueError, TypeError):
+            pass
+            
+        try:
+            total_weeks += int(snap.get("total_weeks") or 16)
+        except (ValueError, TypeError):
+            total_weeks += 16
+            
+        weekly = snap.get("weekly_stats") or []
+        if isinstance(weekly, str):
+            import json
+            try:
+                weekly = json.loads(weekly)
+            except Exception:
+                weekly = []
+                
+        for w in weekly:
+            if not isinstance(w, dict):
+                continue
             upload_status.append({
                 "weekNumber": w.get("weekNumber"),
                 "topic": w.get("topic"),
@@ -149,14 +172,14 @@ def get_upload_status(
                 "script": w.get("scriptDone", False),
             })
 
-    completion_rate = round(total_uploaded / total_weeks * 100, 1) if total_weeks else 0.0
+    completion_rate = round((total_uploaded / total_weeks) * 100, 1) if total_weeks > 0 else 0.0
     return {"uploadStatus": upload_status, "completionRate": completion_rate}
 
 
 # ── 9.2.1 학생 퀴즈 참여 이력 ────────────────────────────────────────────────
 @router.get("/students/quiz-history")
 def get_student_quiz_history(
-    courseId: str | None = None,
+    course_id: str | None = None,
     current_user: dict = Depends(get_current_user),
 ):
     user_id = current_user["id"]
@@ -171,7 +194,7 @@ def get_student_quiz_history(
     # courseId 필터 먼저 적용
     filtered_subs = [
         s for s in (submissions.data or [])
-        if not courseId or (s.get("quizzes") or {}).get("course_id") == courseId
+        if not course_id or (s.get("quizzes") or {}).get("course_id") == course_id
     ]
 
     # 오답 일괄 조회 — N+1 방지
@@ -218,7 +241,7 @@ def get_student_quiz_history(
 # ── 9.2.2 예습·복습 자료 모아보기 ────────────────────────────────────────────
 @router.get("/students/materials")
 def get_student_materials(
-    courseId: str | None = None,
+    course_id: str | None = None,
     current_user: dict = Depends(get_current_user),
 ):
     user_id = current_user["id"]
@@ -232,10 +255,10 @@ def get_student_materials(
     )
     enrolled_ids = [r["course_id"] for r in (enrollments.data or [])]
 
-    if courseId:
-        if courseId not in enrolled_ids:
+    if course_id:
+        if course_id not in enrolled_ids:
             raise HTTPException(status_code=403, detail="수강 중인 강의가 아닙니다.")
-        target_ids = [courseId]
+        target_ids = [course_id]
     else:
         target_ids = enrolled_ids
 

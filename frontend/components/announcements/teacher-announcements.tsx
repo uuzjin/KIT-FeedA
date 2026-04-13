@@ -88,12 +88,14 @@ export function TeacherAnnouncements() {
       try {
         const [noticesData, settingsData] = await Promise.all([
           getNotices(),
-          getNoticeSettings(user.id),
+          getNoticeSettings(),
         ]);
         setNotices(noticesData);
         setSettings(settingsData);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "데이터를 불러오지 못했습니다.");
+        setError(
+          err instanceof Error ? err.message : "데이터를 불러오지 못했습니다.",
+        );
       }
     };
     void load();
@@ -102,10 +104,12 @@ export function TeacherAnnouncements() {
   const handleSaveSettings = async () => {
     if (!settings || !user?.id) return;
     try {
-      const result = await updateNoticeSettings(user.id, settings);
+      const result = await updateNoticeSettings(settings);
       setSettings(result.settings);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "설정 저장에 실패했습니다.");
+      setError(
+        err instanceof Error ? err.message : "설정 저장에 실패했습니다.",
+      );
     }
   };
 
@@ -309,15 +313,20 @@ export function TeacherAnnouncements() {
                           </p>
                         </div>
                       </div>
-                      <div className="flex gap-2">
-                        <Button size="sm" variant="outline">
-                          {"수정"}
-                        </Button>
-                        <Button size="sm" className="gap-1">
-                          <Send className="size-3" />
-                          {"발행"}
-                        </Button>
-                      </div>
+                    </div>
+                    <div className="mt-4 flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="flex-1 gap-2"
+                      >
+                        <Edit className="size-4" />
+                        {"수정"}
+                      </Button>
+                      <Button size="sm" className="flex-1 gap-2">
+                        <Send className="size-4" />
+                        {"발행"}
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>

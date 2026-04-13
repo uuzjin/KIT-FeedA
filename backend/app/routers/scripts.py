@@ -19,6 +19,10 @@ router = APIRouter(prefix="/api/courses/{course_id}/scripts", tags=["scripts"])
 
 
 def _format_script(row: dict) -> dict:
+    status = "analyzing"
+    if row.get("script_reports"):
+        status = "completed"
+
     return {
         "scriptId": row.get("id"),
         "courseId": row.get("course_id"),
@@ -29,6 +33,7 @@ def _format_script(row: dict) -> dict:
         "mimeType": row.get("mime_type"),
         "weekNumber": row.get("week_number"),
         "uploadedAt": row.get("uploaded_at") or row.get("created_at"),
+        "status": status,
     }
 
 
@@ -201,8 +206,14 @@ def _run_suggestions(script_id: str, script_text: str) -> None:
             "slides": report_result.get("slides", []),
             "overall_score": report_result.get("overall_score"),
         }, on_conflict="script_id").execute()
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"❌ 리포트 생성 실패 (상태 처리를 위해 빈 리포트 생성): {e}")
+        # 실패 시에도 상태가 '완료'로 넘어가도록 빈 리포트를 삽입
+        supabase.table("script_reports").upsert({
+            "script_id": script_id,
+            "slides": [],
+            "overall_score": 0,
+        }, on_conflict="script_id").execute()
 
 
 # ── 4.1.2 스크립트 목록 조회 ─────────────────────────────────────────────────
@@ -215,7 +226,7 @@ def list_scripts(
     try:
         q = (
             supabase.table("scripts")
-            .select("*")
+            .select("*, script_reports(id)")
             .eq("course_id", course_id)
             .order("uploaded_at", desc=True)
         )
@@ -235,7 +246,7 @@ def list_scripts(
 def get_script(course_id: str, script_id: str, current_user: dict = Depends(get_current_user)):
     result = (
         supabase.table("scripts")
-        .select("*")
+        .select("*, script_reports(id)")
         .eq("id", script_id)
         .eq("course_id", course_id)
         .maybe_single()
