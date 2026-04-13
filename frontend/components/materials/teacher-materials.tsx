@@ -312,11 +312,11 @@ export function TeacherMaterials() {
       });
       const newScript = {
         id: res.scriptId,
-        scheduleId: res.scheduleId,
-        weekNumber: res.weekNumber,
-        title: res.title,
-        format: (res.fileName.split(".").pop() || "문서").toUpperCase(),
-        uploadDate: new Date(res.uploadedAt).toLocaleDateString(),
+        scheduleId: res.scheduleId || null,
+        weekNumber: res.weekNumber || null,
+        title: res.title || title,
+        format: (res.fileName?.split(".").pop() || "문서").toUpperCase(),
+        uploadDate: new Date(res.uploadedAt || new Date()).toLocaleDateString(),
         status: "analyzing",
         progress: 0,
         issues: 0,
