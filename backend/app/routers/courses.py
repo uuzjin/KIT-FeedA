@@ -53,38 +53,40 @@ def _execute_with_retry(builder, *, attempts: int = 2, delay_seconds: float = 0.
     last_error = None
     for attempt in range(attempts):
         try:
-            # postgrest-py의 execute()는 에러 발생 시 예외를 던집니다.
+            # postgrest-py의 execute()는 성공 시 APIResponse 객체를 반환하며, 실패 시 예외를 던집니다.
             result = builder.execute()
-            if result is not None:
-                return result
+            # result가 None인 경우는 거의 없으나, 만약 데이터가 없다면 .data가 []인 객체가 옵니다.
+            return result
         except Exception as exc:
             last_error = exc
-            # 이미 HTTPException인 경우 (예: 404, 403 등) 그대로 다시 던집니다.
+            # 이미 HTTPException인 경우 그대로 다시 던집니다.
             if isinstance(exc, HTTPException):
                 raise exc
             
-            # Postgrest 에러 메시지에 따라 적절한 HTTP 상태 코드 할당
+            # Postgrest 에러 메시지 분석
             error_msg = str(exc).lower()
-            if "row level security" in error_msg or "permission denied" in error_msg:
-                raise HTTPException(status_code=403, detail="데이터베이스 접근 권한이 없습니다. (RLS 정책 확인 필요)") from exc
-            if "duplicate key" in error_msg or "unique constraint" in error_msg:
-                # 409 Conflict를 바로 던지지 않고 호출부에서 판단하도록 예외를 유지할 수도 있지만,
-                # 재시도 의미가 없으므로 여기서 던집니다.
-                raise HTTPException(status_code=409, detail="이미 존재하는 데이터입니다.") from exc
+            if "row level security" in error_msg or "permission denied" in error_msg or "403" in error_msg:
+                raise HTTPException(
+                    status_code=403, 
+                    detail="데이터베이스 접근 권한이 없습니다. Supabase RLS 정책을 확인하거나 SERVICE_KEY 설정을 확인해주세요."
+                ) from exc
+            
+            if "duplicate key" in error_msg or "unique constraint" in error_msg or "409" in error_msg:
+                raise HTTPException(status_code=409, detail="이미 등록된 정보이거나 중복된 데이터입니다.") from exc
 
         if attempt < attempts - 1:
             time.sleep(delay_seconds)
 
+    # 모든 재시도 실패 시
     if last_error is not None:
-        # 최종 실패 시 503 대신 500 또는 원본 에러를 활용
-        if isinstance(last_error, HTTPException):
-            raise last_error
+        # 실제 에러 메시지를 detail에 포함하여 프론트에서 확인할 수 있게 함
+        detail_msg = str(last_error)
         raise HTTPException(
             status_code=500,
-            detail=f"데이터베이스 작업 중 오류가 발생했습니다: {str(last_error)}",
+            detail=f"데이터베이스 통신 오류: {detail_msg}",
         ) from last_error
     
-    raise HTTPException(status_code=500, detail="데이터베이스 작업 중 알 수 없는 오류가 발생했습니다.")
+    raise HTTPException(status_code=500, detail="데이터베이스로부터 응답을 받지 못했습니다. 설정(URL/Key)을 확인해주세요.")
 
 
 def _notify_invite_acceptance(course_id: str, course_name: str, student_id: str) -> None:
