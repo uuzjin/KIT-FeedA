@@ -71,8 +71,14 @@ app.include_router(notices.router)
 app.include_router(dashboard.router)
 app.include_router(analysis.router)
 app.include_router(content.materials_router)
-app.include_router(content.preview_router)
-app.include_router(content.review_router)
+app.include_router(
+    content.preview_router,
+    prefix="/api/courses/{course_id}/schedules/{schedule_id}",
+)
+app.include_router(
+    content.review_router,
+    prefix="/api/courses/{course_id}/schedules/{schedule_id}",
+)
 app.include_router(ai_simulation.router)
 app.include_router(notifications.router)
 app.include_router(reminders.deadlines_router)
