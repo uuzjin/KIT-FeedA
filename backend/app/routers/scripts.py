@@ -56,14 +56,17 @@ async def upload_script(
             supabase.table("course_schedules")
             .select("id, week_number")
             .eq("course_id", course_id)
-            .order("week_number")
+            .order("week_number", desc=False)
             .limit(1)
             .execute()
         )
         if schedules_res.data:
             schedule_id = schedules_res.data[0]["id"]
+            # week_number가 없거나 0인 경우에만 스케줄의 주차 정보를 사용
             if not week_number:
                 week_number = schedules_res.data[0]["week_number"]
+        else:
+            print(f"⚠️ 경고: course_id {course_id} 에 등록된 스케줄이 없어 schedule_id를 할당하지 못했습니다.")
 
     try:
         file_id = str(uuid.uuid4())
@@ -71,7 +74,7 @@ async def upload_script(
 
         await upload_file(file, BUCKET_SCRIPTS, storage_path, ALLOWED_SCRIPT_TYPES, MAX_SCRIPT_SIZE)
 
-        result = supabase.table("scripts").insert({
+        insert_data = {
             "course_id": course_id,
             "schedule_id": schedule_id,
             "title": title,
@@ -79,8 +82,11 @@ async def upload_script(
             "file_size": file.size or 0,
             "mime_type": file.content_type,
             "content_path": storage_path,
-            "week_number": week_number,
-        }).execute()
+        }
+        if week_number:
+            insert_data["week_number"] = week_number
+
+        result = supabase.table("scripts").insert(insert_data).execute()
 
         if not result.data:
             raise HTTPException(status_code=500, detail="스크립트 업로드에 실패했습니다.")

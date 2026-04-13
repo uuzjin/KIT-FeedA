@@ -557,6 +557,9 @@ export function TeacherMaterials() {
                           <Badge variant="outline" className="text-xs">
                             {script.format}
                           </Badge>
+                          <Badge variant="secondary" className="text-xs">
+                            {script.weekNumber ? `${script.weekNumber}주차` : "주차 미지정"}
+                          </Badge>
                         </div>
                         <p className="mt-1 font-medium text-foreground">
                           {script.title}

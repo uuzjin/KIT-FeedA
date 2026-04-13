@@ -1431,14 +1431,12 @@ export async function publishAnnouncement(
   );
 }
 
-export async function joinCourseByInviteToken(token: string): Promise<{
-  courseId: string;
-  message: string;
-  courseName?: string;
-  joinedAt?: string;
-}> {
-  return request(`/api/courses/join`, {
+export async function createCourseSchedule(
+  courseId: string,
+  payload: { weekNumber: number; topic: string; date?: string; description?: string }
+): Promise<any> {
+  return request(`/api/courses/${courseId}/schedules`, {
     method: "POST",
-    body: JSON.stringify({ token }),
+    body: JSON.stringify(payload),
   });
 }
