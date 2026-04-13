@@ -70,7 +70,10 @@ app.include_router(quiz.router)
 app.include_router(notices.router)
 app.include_router(dashboard.router)
 app.include_router(analysis.router)
-app.include_router(content.materials_router)
+app.include_router(
+    content.materials_router,
+    prefix="/api/courses/{course_id}/materials",
+)
 app.include_router(
     content.preview_router,
     prefix="/api/courses/{course_id}/schedules/{schedule_id}",
