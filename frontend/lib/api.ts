@@ -1135,6 +1135,30 @@ export async function createReviewSummary(
   });
 }
 
+export async function generatePreviewGuide(
+  courseId: string,
+  scheduleId: string,
+): Promise<any> {
+  return request(
+    `/api/courses/${courseId}/schedules/${scheduleId}/preview-guides`,
+    {
+      method: "POST",
+    },
+  );
+}
+
+export async function generateReviewSummary(
+  courseId: string,
+  scheduleId: string,
+): Promise<any> {
+  return request(
+    `/api/courses/${courseId}/schedules/${scheduleId}/review-summaries`,
+    {
+      method: "POST",
+    },
+  );
+}
+
 export async function uploadMaterial(
   courseId: string,
   payload: {

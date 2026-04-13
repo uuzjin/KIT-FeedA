@@ -206,8 +206,14 @@ def _run_suggestions(script_id: str, script_text: str) -> None:
             "slides": report_result.get("slides", []),
             "overall_score": report_result.get("overall_score"),
         }, on_conflict="script_id").execute()
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"❌ 리포트 생성 실패 (상태 처리를 위해 빈 리포트 생성): {e}")
+        # 실패 시에도 상태가 '완료'로 넘어가도록 빈 리포트를 삽입
+        supabase.table("script_reports").upsert({
+            "script_id": script_id,
+            "slides": [],
+            "overall_score": 0,
+        }, on_conflict="script_id").execute()
 
 
 # ── 4.1.2 스크립트 목록 조회 ─────────────────────────────────────────────────
