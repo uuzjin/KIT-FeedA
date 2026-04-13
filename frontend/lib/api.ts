@@ -992,6 +992,7 @@ export type CourseScriptListItem = {
   weekNumber?: number | null;
   uploadedAt: string;
   downloadUrl?: string;
+  status?: string;
 };
 
 // Script Types (분석 상세 등 — 별도 엔드포인트)
@@ -1132,6 +1133,30 @@ export async function createReviewSummary(
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export async function generatePreviewGuide(
+  courseId: string,
+  scheduleId: string,
+): Promise<any> {
+  return request(
+    `/api/courses/${courseId}/schedules/${scheduleId}/preview-guides`,
+    {
+      method: "POST",
+    },
+  );
+}
+
+export async function generateReviewSummary(
+  courseId: string,
+  scheduleId: string,
+): Promise<any> {
+  return request(
+    `/api/courses/${courseId}/schedules/${scheduleId}/review-summaries`,
+    {
+      method: "POST",
+    },
+  );
 }
 
 export async function uploadMaterial(
