@@ -624,6 +624,19 @@ export type AudioItem = {
   createdAt: string;
 };
 
+export async function listAudios(courseId: string): Promise<{ audios: AudioItem[]; totalCount: number }> {
+  const res = await request<any>(`/api/courses/${courseId}/audios`);
+  const audios = (res.audios ?? []).map((a: any) => ({
+    audioId: a.audioId,
+    courseId,
+    fileName: a.fileName,
+    status: a.status,
+    transcriptPreview: a.transcript ?? null,
+    createdAt: a.uploadedAt,
+  }));
+  return { audios, totalCount: res.totalCount ?? audios.length };
+}
+
 export async function getAudio(courseId: string, audioId: string): Promise<AudioItem> {
   const res = await request<any>(`/api/courses/${courseId}/audios/${audioId}`);
   return {
