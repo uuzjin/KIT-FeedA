@@ -6,6 +6,8 @@ class Settings(BaseSettings):
     SUPABASE_KEY: str
     SUPABASE_JWT_SECRET: str
     SUPABASE_SERVICE_KEY: str = ""   # auth.admin 작업용 (탈퇴 계정 영구 삭제)
+    SUPABASE_JWKS_URL: str = ""      # 커스텀 JWKS URI (미설정 시 자동 생성)
+    SUPABASE_JWT_ISSUER: str = ""    # 커스텀 JWT issuer (미설정 시 자동 생성)
     GOOGLE_API_KEY: str
     WHISPER_MODEL_SIZE: str = "base"
 

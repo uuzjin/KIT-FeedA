@@ -42,7 +42,18 @@
       "Bash(grep -rn \"raw fetch\\\\|new fetch\\\\|fetch\\(\\\\`\\\\${process\\\\|fetch\\(process\\\\|fetch\\(\\\\`.*api\" C:/KIT-FeedA/frontend --include=\"*.ts\" --include=\"*.tsx\")",
       "Bash(ls C:/KIT-FeedA/frontend/node_modules/.bin/tsc*)",
       "Bash(grep -n \"enroll\\\\|xlsx\\\\|excel\\\\|addStudents\\\\|studentIds\" C:/KIT-FeedA/frontend/app/courses/\\\\\\\\[id\\\\\\\\]/page.tsx)",
-      "Bash(head:*)"
+      "Bash(head:*)",
+      "Bash(gh pr:*)",
+      "Bash(grep -n \"href\\\\|Link\\\\|navigation\\\\|tab\" C:/KIT-FeedA/frontend/app/courses/[id]/page.tsx)",
+      "Bash(./node_modules/.bin/tsc --noEmit)",
+      "Bash(grep -n \"QuickNav\\\\|course=\" C:/KIT-FeedA/frontend/app/courses/[id]/page.tsx)",
+      "Bash(grep:*)",
+      "Bash(node_modules/.bin/next build:*)",
+      "Bash(ls requirements*.txt)",
+      "Bash(ls pyproject.toml)",
+      "Bash(pip install:*)",
+      "Read(//mnt/**)",
+      "Read(//c//**)"
     ]
   }
 }
