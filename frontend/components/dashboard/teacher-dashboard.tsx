@@ -21,11 +21,13 @@ import {
   Loader2,
   AlertCircle,
   ArrowRight,
+  RefreshCw,
 } from "lucide-react";
 import {
   getInstructorComprehensionTrends,
   getInstructorWeakTopics,
   getInstructorUploadStatus,
+  refreshDashboard,
   ComprehensionTrendItem,
   WeakTopicItem,
   UploadStatusItem,
@@ -47,7 +49,60 @@ export function TeacherDashboard() {
     "IMPROVING" | "DECLINING" | "STABLE"
   >("STABLE");
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const loadData = async (courseId: string) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const [trendsRes, weakTopicsRes, uploadStatusRes] =
+        await Promise.allSettled([
+          getInstructorComprehensionTrends(courseId),
+          getInstructorWeakTopics(courseId),
+          getInstructorUploadStatus(courseId),
+        ]);
+
+      if (trendsRes.status === "fulfilled") {
+        setTrends(trendsRes.value.trends || []);
+        setOverallTrend(trendsRes.value.overallTrend || "STABLE");
+      } else {
+        setTrends([]);
+      }
+
+      if (weakTopicsRes.status === "fulfilled") {
+        setWeakTopics(weakTopicsRes.value.weakTopics || []);
+      } else {
+        setWeakTopics([]);
+      }
+
+      if (uploadStatusRes.status === "fulfilled") {
+        setUploadStatus(uploadStatusRes.value.uploadStatus || []);
+        setCompletionRate(uploadStatusRes.value.completionRate || 0);
+      } else {
+        setUploadStatus([]);
+        setCompletionRate(0);
+      }
+    } catch (err) {
+      setError("대시보드 데이터를 불러오는 중 일부 오류가 발생했습니다.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleRefresh = async () => {
+    if (!selectedCourse?.courseId || isRefreshing) return;
+    setIsRefreshing(true);
+    setError(null);
+    try {
+      await refreshDashboard(selectedCourse.courseId);
+      await loadData(selectedCourse.courseId);
+    } catch (err) {
+      setError("대시보드 새로고침에 실패했습니다.");
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   useEffect(() => {
     if (isAuthLoading) return;
@@ -59,44 +114,7 @@ export function TeacherDashboard() {
     // 선택된 과목이 없으면 대기 (Context 로드 대기)
     if (!selectedCourse?.courseId) return;
 
-    const loadData = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const [trendsRes, weakTopicsRes, uploadStatusRes] =
-          await Promise.allSettled([
-            getInstructorComprehensionTrends(selectedCourse.courseId),
-            getInstructorWeakTopics(selectedCourse.courseId),
-            getInstructorUploadStatus(selectedCourse.courseId),
-          ]);
-
-        if (trendsRes.status === "fulfilled") {
-          setTrends(trendsRes.value.trends || []);
-          setOverallTrend(trendsRes.value.overallTrend || "STABLE");
-        } else {
-          setTrends([]);
-        }
-
-        if (weakTopicsRes.status === "fulfilled") {
-          setWeakTopics(weakTopicsRes.value.weakTopics || []);
-        } else {
-          setWeakTopics([]);
-        }
-
-        if (uploadStatusRes.status === "fulfilled") {
-          setUploadStatus(uploadStatusRes.value.uploadStatus || []);
-          setCompletionRate(uploadStatusRes.value.completionRate || 0);
-        } else {
-          setUploadStatus([]);
-          setCompletionRate(0);
-        }
-      } catch (err) {
-        setError("대시보드 데이터를 불러오는 중 일부 오류가 발생했습니다.");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    void loadData();
+    void loadData(selectedCourse.courseId);
   }, [isAuthLoading, user, selectedCourse?.courseId]);
 
   const weeklyStats = useMemo(() => {
@@ -229,7 +247,17 @@ export function TeacherDashboard() {
 
       {/* 주간 통계 */}
       {selectedCourse?.courseId && (
-        <div className="flex justify-end">
+        <div className="flex items-center justify-end gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+          >
+            <RefreshCw className={`size-4 ${isRefreshing ? "animate-spin" : ""}`} />
+            {isRefreshing ? "새로고침 중..." : "데이터 새로고침"}
+          </Button>
           <Button
             variant="outline"
             className="gap-2"
