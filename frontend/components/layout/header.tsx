@@ -40,7 +40,8 @@ import { DeleteAccountDialog } from "@/components/profile/delete-account-dialog"
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
-import { getCourses, type Course } from "@/lib/api";
+import { type Course } from "@/lib/api";
+import { useCourse } from "@/contexts/course-context";
 
 function formatCourseSchedule(course: Course) {
   const days =
@@ -56,9 +57,13 @@ export function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [menuCourses, setMenuCourses] = useState<Course[]>([]);
-  const [menuCoursesLoading, setMenuCoursesLoading] = useState(false);
-  const [menuCoursesError, setMenuCoursesError] = useState<string | null>(null);
+  const {
+    courses,
+    selectedCourse,
+    setSelectedCourse,
+    isLoading: isCoursesLoading,
+    error: coursesError,
+  } = useCourse();
   const [notifications, setNotifications] = useState({
     quiz: true,
     material: true,
@@ -77,39 +82,6 @@ export function Header() {
   };
 
   const isTeacher = user?.role === "INSTRUCTOR";
-
-  useEffect(() => {
-    if (!isMenuOpen || !user) return;
-
-    let cancelled = false;
-    const load = async () => {
-      setMenuCoursesLoading(true);
-      setMenuCoursesError(null);
-      try {
-        const res = await getCourses();
-        if (!cancelled) {
-          setMenuCourses(res.courses);
-        }
-      } catch (e) {
-        if (!cancelled) {
-          const msg =
-            e instanceof Error
-              ? e.message
-              : "강의 목록을 불러오지 못했습니다.";
-          setMenuCoursesError(msg);
-          setMenuCourses([]);
-        }
-      } finally {
-        if (!cancelled) {
-          setMenuCoursesLoading(false);
-        }
-      }
-    };
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [isMenuOpen, user]);
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-card/95 backdrop-blur-sm supports-backdrop-filter:bg-card/80">
@@ -157,37 +129,51 @@ export function Header() {
             )}
             <ScrollArea className="h-[calc(100vh-280px)]">
               <div className="flex flex-col gap-2 p-4">
-                {menuCoursesLoading ? (
+                {isCoursesLoading ? (
                   <div className="flex flex-col items-center justify-center gap-2 py-12 text-muted-foreground">
                     <Loader2 className="size-8 animate-spin text-primary" />
                     <span className="text-sm">불러오는 중...</span>
                   </div>
-                ) : menuCoursesError ? (
+                ) : coursesError ? (
                   <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                    {menuCoursesError}
+                    {coursesError}
                   </p>
-                ) : menuCourses.length === 0 ? (
+                ) : courses.length === 0 ? (
                   <p className="py-8 text-center text-sm text-muted-foreground">
                     {isTeacher
                       ? "개설된 강의가 없습니다."
                       : "수강 중인 강의가 없습니다."}
                   </p>
                 ) : (
-                  menuCourses.map((course) => {
+                  courses.map((course) => {
                     const { days, time } = formatCourseSchedule(course);
+                    const isSelected =
+                      selectedCourse?.courseId === course.courseId;
+
                     return (
-                      <Link
+                      <button
                         key={course.courseId}
-                        href={`/courses/${course.courseId}`}
-                        className="group flex flex-col gap-2 rounded-xl border border-transparent bg-secondary/50 p-4 text-left transition-all hover:border-primary/20 hover:bg-primary/5 hover:shadow-sm active:scale-[0.98]"
-                        onClick={() => setIsMenuOpen(false)}
+                        onClick={() => {
+                          setSelectedCourse(course);
+                          setIsMenuOpen(false);
+                        }}
+                        className={`group flex flex-col gap-2 rounded-xl border p-4 text-left transition-all active:scale-[0.98] ${
+                          isSelected
+                            ? "border-primary/50 bg-primary/10 shadow-sm"
+                            : "border-transparent bg-secondary/50 hover:border-primary/20 hover:bg-primary/5 hover:shadow-sm"
+                        }`}
                       >
                         <div className="flex items-start justify-between gap-2">
-                          <span className="font-semibold text-foreground group-hover:text-primary">
+                          <span
+                            className={`font-semibold ${isSelected ? "text-primary" : "text-foreground group-hover:text-primary"}`}
+                          >
                             {course.courseName}
                           </span>
                           {course.maxStudents != null && isTeacher && (
-                            <Badge variant="secondary" className="shrink-0 text-xs">
+                            <Badge
+                              variant="secondary"
+                              className="shrink-0 text-xs"
+                            >
                               정원 {course.maxStudents}명
                             </Badge>
                           )}
@@ -200,7 +186,7 @@ export function Header() {
                           <span className="text-muted-foreground/60">|</span>
                           <span>{time}</span>
                         </div>
-                      </Link>
+                      </button>
                     );
                   })
                 )}

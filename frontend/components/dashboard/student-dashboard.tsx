@@ -27,10 +27,13 @@ import {
 } from "@/lib/api";
 import { useAuth } from "@/contexts/auth-context";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { useCourse } from "@/contexts/course-context";
+import { CourseInfoBanner } from "@/components/layout/course-info-banner";
 
 export function StudentDashboard() {
   const router = useRouter();
   const { user, isLoading: isAuthLoading } = useAuth();
+  const { selectedCourse } = useCourse();
   const [quizHistory, setQuizHistory] = useState<QuizSubmissionHistory[]>([]);
   const [materials, setMaterials] = useState<StudentMaterialItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -43,30 +46,42 @@ export function StudentDashboard() {
       return;
     }
 
+    if (!selectedCourse?.courseId) return;
+
     const loadData = async () => {
       setIsLoading(true);
       setError(null);
       try {
-        const [quizData, materialsData] = await Promise.all([
-          getStudentQuizHistory(),
-          getStudentMaterials(),
+        const [quizRes, materialsRes] = await Promise.allSettled([
+          getStudentQuizHistory(selectedCourse.courseId),
+          getStudentMaterials(selectedCourse.courseId),
         ]);
-        setQuizHistory(quizData.history || []);
-        setMaterials(materialsData.materials || []);
+
+        setQuizHistory(
+          quizRes.status === "fulfilled" ? quizRes.value.history || [] : [],
+        );
+        setMaterials(
+          materialsRes.status === "fulfilled"
+            ? materialsRes.value.materials || []
+            : [],
+        );
+
+        if (
+          quizRes.status === "rejected" ||
+          materialsRes.status === "rejected"
+        ) {
+          setError(
+            "일부 데이터를 불러오지 못했습니다. 백엔드 상태를 확인해주세요.",
+          );
+        }
       } catch (err) {
-        const message =
-          err instanceof Error
-            ? err.message
-            : "대시보드 데이터를 불러오지 못했습니다.";
-        setError(message);
-        setQuizHistory([]);
-        setMaterials([]);
+        setError("대시보드 데이터를 불러오는 중 오류가 발생했습니다.");
       } finally {
         setIsLoading(false);
       }
     };
     void loadData();
-  }, [isAuthLoading, user]);
+  }, [isAuthLoading, user, selectedCourse?.courseId]);
 
   // 계산된 통계
   const stats = useMemo(() => {
@@ -175,6 +190,8 @@ export function StudentDashboard() {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 p-4 pb-24">
+      <CourseInfoBanner />
+
       {error && (
         <Alert variant="destructive">
           <AlertCircle className="size-4" />

@@ -5,8 +5,18 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/layout/app-shell";
 import { useAuth } from "@/contexts/auth-context";
-import { createCourse, createCourseInvite, type CourseInviteResponse } from "@/lib/api";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  createCourse,
+  createCourseInvite,
+  type CourseInviteResponse,
+} from "@/lib/api";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,6 +24,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "@/components/ui/spinner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { useCourse } from "@/contexts/course-context";
 import { ArrowLeft, CheckCircle2, Copy, Loader2 } from "lucide-react";
 
 function toKoreanCreateError(err: unknown): string {
@@ -46,6 +57,7 @@ const DAY_OPTIONS = [
 export default function CreateCoursePage() {
   const { user, isLoading, isHydrated } = useAuth();
   const router = useRouter();
+  const { refreshCourses } = useCourse();
 
   const [courseName, setCourseName] = useState("");
   const [semester, setSemester] = useState("");
@@ -99,6 +111,10 @@ export default function CreateCoursePage() {
         description: description.trim() || undefined,
       });
       setCreatedCourseId(course.courseId);
+
+      // 강의 생성 완료 후 좌측 햄버거 메뉴(전역 상태)를 최신화합니다.
+      await refreshCourses();
+
       try {
         const inv = await createCourseInvite(course.courseId);
         setInvite(inv);
@@ -144,14 +160,21 @@ export default function CreateCoursePage() {
     <AppShell>
       <div className="mx-auto max-w-xl space-y-6 px-4 py-8">
         <div>
-          <Button variant="ghost" size="sm" className="mb-4 gap-1 px-0 text-muted-foreground" asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mb-4 gap-1 px-0 text-muted-foreground"
+            asChild
+          >
             <Link href="/">
               <ArrowLeft className="size-4" />
               대시보드
             </Link>
           </Button>
           <h1 className="text-2xl font-semibold tracking-tight">강의 개설</h1>
-          <p className="mt-1 text-sm text-muted-foreground">기본 정보를 입력한 뒤 저장하면 강의실이 생성됩니다.</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            기본 정보를 입력한 뒤 저장하면 강의실이 생성됩니다.
+          </p>
         </div>
 
         {error && (
@@ -169,12 +192,22 @@ export default function CreateCoursePage() {
               {invite && (
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">
-                    아래 링크를 학생에게 공유하면 로그인 후 수강 등록할 수 있습니다.
+                    아래 링크를 학생에게 공유하면 로그인 후 수강 등록할 수
+                    있습니다.
                   </p>
                   <Label className="text-xs">초대 링크</Label>
                   <div className="flex flex-col gap-2 sm:flex-row">
-                    <Input readOnly value={invite.inviteLink} className="font-mono text-xs" />
-                    <Button type="button" variant="secondary" onClick={copyInviteLink} className="shrink-0 gap-1">
+                    <Input
+                      readOnly
+                      value={invite.inviteLink}
+                      className="font-mono text-xs"
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={copyInviteLink}
+                      className="shrink-0 gap-1"
+                    >
                       <Copy className="size-4" />
                       {copied ? "복사됨" : "복사"}
                     </Button>
@@ -186,13 +219,16 @@ export default function CreateCoursePage() {
               )}
               {inviteError && (
                 <p className="text-sm text-destructive">
-                  초대 링크는 자동으로 만들지 못했습니다. 강의 상세에서 다시 발급할 수 있습니다. ({inviteError})
+                  초대 링크는 자동으로 만들지 못했습니다. 강의 상세에서 다시
+                  발급할 수 있습니다. ({inviteError})
                 </p>
               )}
               <div className="flex flex-col gap-2 sm:flex-row">
                 {createdCourseId && (
                   <Button asChild variant="default">
-                    <Link href={`/courses/${createdCourseId}`}>강의 상세로 이동</Link>
+                    <Link href={`/courses/${createdCourseId}`}>
+                      강의 상세로 이동
+                    </Link>
                   </Button>
                 )}
                 <Button variant="outline" asChild>
@@ -206,7 +242,9 @@ export default function CreateCoursePage() {
         <Card>
           <CardHeader>
             <CardTitle>강의 정보</CardTitle>
-            <CardDescription>제목, 학기, 요일·시간은 이후에도 수정할 수 있습니다.</CardDescription>
+            <CardDescription>
+              제목, 학기, 요일·시간은 이후에도 수정할 수 있습니다.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
@@ -246,7 +284,11 @@ export default function CreateCoursePage() {
                   disabled={showSuccess}
                 >
                   {DAY_OPTIONS.map((d) => (
-                    <ToggleGroupItem key={d.value} value={d.value} className="px-3">
+                    <ToggleGroupItem
+                      key={d.value}
+                      value={d.value}
+                      className="px-3"
+                    >
                       {d.label}
                     </ToggleGroupItem>
                   ))}
@@ -300,7 +342,11 @@ export default function CreateCoursePage() {
                 />
               </div>
 
-              <Button type="submit" className="w-full" disabled={submitting || showSuccess}>
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={submitting || showSuccess}
+              >
                 {submitting ? (
                   <>
                     <Loader2 className="size-4 animate-spin" />
