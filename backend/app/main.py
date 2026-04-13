@@ -3,7 +3,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from app.core.config import settings
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
@@ -82,7 +81,9 @@ app.include_router(
     content.review_router,
     prefix="/api/courses/{course_id}/schedules/{schedule_id}",
 )
-app.include_router(ai_simulation.router)
+app.include_router(
+    ai_simulation.router,
+)
 app.include_router(notifications.router)
 app.include_router(reminders.deadlines_router)
 app.include_router(reminders.settings_router)

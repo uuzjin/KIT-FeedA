@@ -62,7 +62,21 @@ type PipelineStep = {
   error?: string;
 };
 
-function pollUntilDone<T extends { status: string }>(
+type PollableResult = {
+  status: string;
+  errorMessage?: string;
+};
+
+type TopicGap = {
+  topic: string;
+  reason?: string;
+};
+
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
+function pollUntilDone<T extends PollableResult>(
   fetcher: () => Promise<T>,
   interval = 3000,
   maxAttempts = 40,
@@ -75,7 +89,7 @@ function pollUntilDone<T extends { status: string }>(
         if (result.status === "completed") {
           resolve(result);
         } else if (result.status === "failed") {
-          reject(new Error((result as any).errorMessage ?? "처리에 실패했습니다."));
+          reject(new Error(result.errorMessage ?? "처리에 실패했습니다."));
         } else if (++attempts >= maxAttempts) {
           reject(new Error("시간이 초과되었습니다."));
         } else {
@@ -155,7 +169,7 @@ export default function AiSimulationPage() {
       // 3. Assessment (async) — 202 응답에서 assessmentId 수신
       setStepStatus("assessment", "loading");
       const assessmentRes = await createAiSimAssessment(courseId, { contextId: ctx.contextId, count: 10 });
-      const assessmentId: string | null = (assessmentRes as any).assessmentId ?? null;
+      const assessmentId: string | null = assessmentRes.assessmentId ?? null;
 
       if (!assessmentId) throw new Error("평가 ID를 받지 못했습니다.");
       setSimState((prev) => ({ ...prev, assessmentId }));
@@ -166,7 +180,7 @@ export default function AiSimulationPage() {
 
       // 4. Answers (async)
       setStepStatus("answers", "loading");
-      const answersReq = await createAiSimAnswers(courseId, assessmentId, { simulationId: sim.simulationId });
+      await createAiSimAnswers(courseId, assessmentId, { simulationId: sim.simulationId });
       await pollUntilDone(() => getAiSimAnswers(courseId, assessmentId!));
       setStepStatus("answers", "done");
 
@@ -205,7 +219,7 @@ export default function AiSimulationPage() {
 
       setStep("results");
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "알 수 없는 오류";
+      const msg = getErrorMessage(e, "알 수 없는 오류");
       // Mark remaining idle/loading steps as error
       setPipeline((prev) =>
         prev.map((s) =>
@@ -504,14 +518,17 @@ export default function AiSimulationPage() {
               </CardHeader>
               <CardContent className="px-4 pb-4">
                 <div className="flex flex-col gap-2">
-                  {qualityReport.insufficientTopics.map((t, i) => (
-                    <div key={i} className="rounded bg-background p-2">
-                      <p className="text-sm font-medium text-foreground">{(t as any).topic ?? String(t)}</p>
-                      {(t as any).reason && (
-                        <p className="text-xs text-muted-foreground mt-0.5">{(t as any).reason}</p>
-                      )}
-                    </div>
-                  ))}
+                  {qualityReport.insufficientTopics.map((t, i) => {
+                    const topic = t as TopicGap;
+                    return (
+                      <div key={i} className="rounded bg-background p-2">
+                        <p className="text-sm font-medium text-foreground">{topic.topic}</p>
+                        {topic.reason && (
+                          <p className="text-xs text-muted-foreground mt-0.5">{topic.reason}</p>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>
