@@ -16,23 +16,32 @@ function toKoreanJoinError(err: unknown): string {
   if (!(err instanceof Error)) {
     return "수강 등록에 실패했습니다. 잠시 후 다시 시도해주세요.";
   }
+
+  // 백엔드에서 던진 JSON 에러 응답(detail)이 있는 경우 우선 활용
   const raw = err.message.trim();
-  if (!raw) {
-    return "수강 등록에 실패했습니다. 잠시 후 다시 시도해주세요.";
+  
+  // 503 에러 등에 대한 기본 처리
+  if (raw.includes("503") || raw.includes("Service Unavailable")) {
+    return "현재 서버가 일시적으로 응답할 수 없습니다. 잠시 후 다시 시도하거나 관리자에게 문의해주세요.";
   }
-  if (raw.includes("학생만")) {
+
+  if (raw.includes("학생만") || raw.includes("학생 계정만")) {
     return "초대 링크 수락은 학생 계정으로만 할 수 있습니다. 학생 계정으로 로그인한 뒤 다시 시도해주세요.";
   }
-  if (raw.includes("이미 이 강의에")) {
-    return "이미 이 강의에 등록되어 있습니다.";
+  if (raw.includes("이미 이 강의에") || raw.includes("이미 존재하는 데이터") || raw.includes("이미 등록된 수강생")) {
+    return "이미 이 강의에 등록되어 있습니다. 대시보드에서 강의를 확인해보세요.";
   }
-  if (raw.includes("유효하지 않은 초대") || raw.includes("RESOURCE_NOT_FOUND")) {
-    return "유효하지 않거나 만료된 초대 링크입니다.";
+  if (raw.includes("유효하지 않은 초대") || raw.includes("404") || raw.includes("RESOURCE_NOT_FOUND")) {
+    return "유효하지 않거나 만료된 초대 링크입니다. 링크를 다시 확인하거나 강사에게 새 링크를 요청해주세요.";
   }
-  if (raw.includes("만료된 초대") || raw.includes("RESOURCE_GONE")) {
+  if (raw.includes("만료된 초대") || raw.includes("410") || raw.includes("RESOURCE_GONE")) {
     return "만료된 초대 링크입니다. 강사에게 새 링크를 요청해주세요.";
   }
-  return raw;
+  if (raw.includes("접근 권한이 없습니다") || raw.includes("403")) {
+    return "데이터베이스 접근 권한이 없습니다. 관리자에게 문의해주세요. (RLS 정책 확인 필요)";
+  }
+
+  return raw || "수강 등록 중 알 수 없는 오류가 발생했습니다.";
 }
 
 function JoinContent() {
