@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { AppShell } from "@/components/layout/app-shell";
 import { useAuth } from "@/contexts/auth-context";
 import { loadCourseWorkspace } from "@/lib/course-workspace";
+import { addCourseStudents, getCourseStudents } from "@/lib/api";
 import type { CourseEnrollment, CourseScriptListItem } from "@/lib/api";
 import {
   Card,
@@ -26,6 +27,7 @@ import {
   CalendarDays,
   Clock,
   FileText,
+  FileUp,
   Users,
 } from "lucide-react";
 
@@ -45,6 +47,11 @@ export default function CourseDetailPage() {
   const [data, setData] = useState<Awaited<
     ReturnType<typeof loadCourseWorkspace>
   > | null>(null);
+  const [enrollments, setEnrollments] = useState<CourseEnrollment[]>([]);
+  const [enrollmentTotal, setEnrollmentTotal] = useState(0);
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const [uploadResult, setUploadResult] = useState<string | null>(null);
+  const excelInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isHydrated && !isLoading && !user) {
@@ -61,6 +68,8 @@ export default function CourseDetailPage() {
       try {
         const res = await loadCourseWorkspace(courseId);
         setData(res);
+        setEnrollments(res.enrollments.students);
+        setEnrollmentTotal(res.enrollments.totalCount);
       } catch (e) {
         const msg =
           e instanceof Error ? e.message : "강의 정보를 불러오지 못했습니다.";
@@ -73,6 +82,30 @@ export default function CourseDetailPage() {
 
     void run();
   }, [user, courseId]);
+
+  const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !courseId) return;
+    setUploadingFile(true);
+    setUploadResult(null);
+    try {
+      const res = await addCourseStudents(courseId, { file });
+      let msg = `${res.addedCount}명이 등록되었습니다.`;
+      if (res.notFoundEmails?.length) {
+        msg += ` (미등록 이메일 ${res.notFoundEmails.length}개 있음)`;
+      }
+      setUploadResult(msg);
+      // Refresh student list
+      const updated = await getCourseStudents(courseId);
+      setEnrollments(updated.students);
+      setEnrollmentTotal(updated.totalCount);
+    } catch (err) {
+      setUploadResult(err instanceof Error ? err.message : "업로드 실패");
+    } finally {
+      setUploadingFile(false);
+      if (e.target) e.target.value = "";
+    }
+  };
 
   if (!isHydrated || isLoading) {
     return (
@@ -174,16 +207,44 @@ export default function CourseDetailPage() {
               <div className="grid gap-8 lg:grid-cols-2">
                 <Card>
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-lg">
-                      <Users className="size-5 text-primary" />
-                      수강생
-                    </CardTitle>
-                    <CardDescription>
-                      총 {data!.enrollments.totalCount}명
-                    </CardDescription>
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <CardTitle className="flex items-center gap-2 text-lg">
+                          <Users className="size-5 text-primary" />
+                          수강생
+                        </CardTitle>
+                        <CardDescription>총 {enrollmentTotal}명</CardDescription>
+                      </div>
+                      {user.role === "INSTRUCTOR" && (
+                        <>
+                          <input
+                            ref={excelInputRef}
+                            type="file"
+                            className="hidden"
+                            accept=".xlsx,.csv"
+                            onChange={handleExcelUpload}
+                          />
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1.5"
+                            onClick={() => excelInputRef.current?.click()}
+                            disabled={uploadingFile}
+                          >
+                            <FileUp className="size-3.5" />
+                            {uploadingFile ? "업로드 중..." : "엑셀 업로드"}
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                    {uploadResult && (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        {uploadResult}
+                      </p>
+                    )}
                   </CardHeader>
                   <CardContent>
-                    <StudentList students={data!.enrollments.students} />
+                    <StudentList students={enrollments} />
                   </CardContent>
                 </Card>
 

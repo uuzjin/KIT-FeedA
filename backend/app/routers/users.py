@@ -1,7 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException
+import uuid
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from ..core.auth import get_current_user, require_instructor
 from ..core.errors import AppError
+from ..core.storage import (
+    ALLOWED_IMAGE_TYPES,
+    BUCKET_PROFILES,
+    MAX_IMAGE_SIZE,
+    get_signed_url,
+    upload_file,
+)
 from ..database import supabase
 from ..schemas import AssignCoursesRequest, ProfileUpdateRequest, RoleUpdateRequest
 
@@ -9,13 +18,21 @@ router = APIRouter(prefix="/api/users", tags=["users"])
 
 
 def _format_profile(row: dict) -> dict:
+    path = row.get("profile_image_path")
+    image_url: str | None = None
+    if path:
+        try:
+            image_url = get_signed_url(BUCKET_PROFILES, path, expires_in=3600)
+        except Exception:
+            image_url = None  # 서명 URL 생성 실패 시 None 반환
+
     return {
         "userId": row["id"],
         "name": row["name"],
         "email": row["email"],
         "role": row["role"],
         "title": row.get("title"),
-        "profileImageUrl": row.get("profile_image_path"),  # Phase 2에서 Signed URL로 교체
+        "profileImageUrl": image_url,
         "createdAt": row.get("created_at"),
     }
 
@@ -53,6 +70,26 @@ def update_profile(
         raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
 
     return _format_profile(result.data[0])
+
+
+# ── 2.1.1-B 프로필 이미지 업로드 ──────────────────────────────────────────────
+@router.post("/{user_id}/profile/image")
+async def upload_profile_image(
+    user_id: str,
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
+    """프로필 이미지를 Supabase Storage에 업로드하고 Signed URL을 반환합니다."""
+    if current_user["id"] != user_id:
+        raise HTTPException(status_code=403, detail="본인 프로필 이미지만 변경할 수 있습니다.")
+
+    storage_path = f"{user_id}/{uuid.uuid4()}_{file.filename}"
+    await upload_file(file, BUCKET_PROFILES, storage_path, ALLOWED_IMAGE_TYPES, MAX_IMAGE_SIZE)
+
+    supabase.table("profiles").update({"profile_image_path": storage_path}).eq("id", user_id).execute()
+
+    signed_url = get_signed_url(BUCKET_PROFILES, storage_path, expires_in=3600)
+    return {"profileImageUrl": signed_url}
 
 
 # ── 2.1.3 담당 과목 등록 (강사) ────────────────────────────────────────────────

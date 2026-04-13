@@ -15,5 +15,6 @@ python-pptx
 python-docx
 apscheduler
 slowapi
+openpyxl
 pytest
 pytest-asyncio

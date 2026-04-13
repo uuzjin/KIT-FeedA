@@ -448,13 +448,47 @@ export async function addCourseStudents(
   payload: { file?: File; studentIds?: string[] },
 ): Promise<{
   addedCount: number;
+  notFoundEmails?: string[];
   errors: Array<{ row: number; reason: string }>;
 }> {
-  if (payload.file && !(payload.studentIds && payload.studentIds.length > 0)) {
-    throw new Error(
-      "엑셀 파일 일괄 등록은 서버에 연결되어 있지 않습니다. 초대 링크를 사용하거나 학생 ID 목록으로 등록해 주세요.",
+  // File upload path — Excel/CSV → POST /enrollments/upload
+  if (payload.file) {
+    const formData = new FormData();
+    formData.append("file", payload.file);
+
+    const authHeaders = await getAuthHeaders();
+    const res = await fetch(
+      `${API_BASE_URL}/api/courses/${courseId}/enrollments/upload`,
+      {
+        method: "POST",
+        headers: {
+          ...(authHeaders.Authorization
+            ? { Authorization: authHeaders.Authorization }
+            : {}),
+        },
+        body: formData,
+      },
     );
+    if (!res.ok) {
+      let message = `파일 등록 실패 (${res.status})`;
+      try {
+        const body = (await res.json()) as { detail?: string };
+        if (body?.detail) message = body.detail;
+      } catch { /* ignore */ }
+      throw new Error(message);
+    }
+    const data = (await res.json()) as {
+      enrolledCount: number;
+      notFoundEmails?: string[];
+    };
+    return {
+      addedCount: data.enrolledCount ?? 0,
+      notFoundEmails: data.notFoundEmails ?? [],
+      errors: [],
+    };
   }
+
+  // ID list path — POST /enrollments with JSON
   if (!payload.studentIds?.length) {
     throw new Error("추가할 학생 ID가 없습니다.");
   }
@@ -598,9 +632,48 @@ export async function getAudio(courseId: string, audioId: string): Promise<Audio
   return request<AudioItem>(`/api/courses/${courseId}/audios/${audioId}`);
 }
 
-// createAudioConvertTask / getAudioConvertTask: removed (wrong endpoints).
-// Use direct fetch with FormData for upload (see teacher-materials.tsx),
-// then poll with getAudio(courseId, audioId).
+export async function uploadAudio(
+  courseId: string,
+  file: File,
+  scheduleId?: string,
+): Promise<{ audioId: string; fileName: string; status: string }> {
+  const formData = new FormData();
+  formData.append("file", file);
+  if (scheduleId) {
+    formData.append("schedule_id", scheduleId);
+  }
+
+  const authHeaders = await getAuthHeaders();
+  const response = await fetch(
+    `${API_BASE_URL}/api/courses/${courseId}/audios`,
+    {
+      method: "POST",
+      headers: {
+        ...(authHeaders.Authorization
+          ? { Authorization: authHeaders.Authorization }
+          : {}),
+      },
+      body: formData,
+    },
+  );
+
+  if (!response.ok) {
+    let message = `오디오 업로드 실패 (${response.status})`;
+    try {
+      const body = (await response.json()) as { detail?: string };
+      if (body?.detail) message = body.detail;
+    } catch {
+      // ignore parse error
+    }
+    throw new Error(message);
+  }
+
+  return (await response.json()) as {
+    audioId: string;
+    fileName: string;
+    status: string;
+  };
+}
 
 // getLatestQuiz / generateQuiz: removed (endpoints do not exist in backend).
 // Use getCourseQuizzes(courseId) and createQuiz(courseId, payload).
@@ -616,43 +689,51 @@ export async function updateUserProfile(
   userId: string,
   payload: UpdateProfilePayload,
 ): Promise<UserProfile> {
-  const formData = new FormData();
+  // 1. Update text fields via JSON PUT
+  const textPayload: Record<string, string> = {};
+  if (payload.name) textPayload.name = payload.name;
+  if (payload.title !== undefined) textPayload.title = payload.title ?? "";
 
-  if (payload.name) {
-    formData.append("name", payload.name);
-  }
-  if (payload.title) {
-    formData.append("title", payload.title);
-  }
-  if (payload.profileImage) {
-    formData.append("profileImage", payload.profileImage);
-  }
-
-  const authHeaders = await getAuthHeaders();
-  const response = await fetch(`${API_BASE_URL}/api/users/${userId}/profile`, {
+  let profile = await request<UserProfile>(`/api/users/${userId}/profile`, {
     method: "PUT",
-    headers: {
-      ...(authHeaders.Authorization
-        ? { Authorization: authHeaders.Authorization }
-        : {}),
-    },
-    body: formData,
+    body: JSON.stringify(textPayload),
   });
 
-  if (!response.ok) {
-    let message = `프로필 수정 실패 (${response.status})`;
-    try {
-      const body = (await response.json()) as { detail?: string };
-      if (body?.detail) {
-        message = body.detail;
+  // 2. If an image is provided, upload it separately and merge the result
+  if (payload.profileImage) {
+    const formData = new FormData();
+    formData.append("file", payload.profileImage);
+
+    const authHeaders = await getAuthHeaders();
+    const imgRes = await fetch(
+      `${API_BASE_URL}/api/users/${userId}/profile/image`,
+      {
+        method: "POST",
+        headers: {
+          ...(authHeaders.Authorization
+            ? { Authorization: authHeaders.Authorization }
+            : {}),
+        },
+        body: formData,
+      },
+    );
+
+    if (!imgRes.ok) {
+      let message = `프로필 이미지 업로드 실패 (${imgRes.status})`;
+      try {
+        const body = (await imgRes.json()) as { detail?: string };
+        if (body?.detail) message = body.detail;
+      } catch {
+        // ignore parse error
       }
-    } catch {
-      // ignore parse error
+      throw new Error(message);
     }
-    throw new Error(message);
+
+    const imgData = (await imgRes.json()) as { profileImageUrl: string };
+    profile = { ...profile, profileImageUrl: imgData.profileImageUrl };
   }
 
-  return (await response.json()) as UserProfile;
+  return profile;
 }
 
 export async function deleteUserAccount(
@@ -933,12 +1014,14 @@ export async function uploadScript(
   courseId: string,
   payload: {
     file: File;
+    title: string;
     weekNumber?: number;
     topic?: string;
   },
 ): Promise<{ scriptId: string; status: string; message: string }> {
   const formData = new FormData();
   formData.append("file", payload.file);
+  formData.append("title", payload.title);
   if (payload.weekNumber) {
     formData.append("weekNumber", payload.weekNumber.toString());
   }
@@ -1020,32 +1103,74 @@ export async function getCourseMaterials(
   );
 }
 
-export async function createPreviewGuide(
+// Content Generation Types
+export type PreviewGuide = {
+  previewGuideId: string;
+  courseId: string;
+  scheduleId: string;
+  title: string;
+  status: "generating" | "completed" | "failed";
+  keyConcepts: string[];
+  readingMaterials?: unknown;
+  summary?: string;
+  errorMessage?: string;
+  createdAt: string;
+  completedAt?: string;
+};
+
+export type ReviewSummary = {
+  reviewSummaryId: string;
+  courseId: string;
+  scheduleId: string;
+  title: string;
+  status: "generating" | "completed" | "failed";
+  content?: string;
+  keyPoints: string[];
+  errorMessage?: string;
+  createdAt: string;
+  completedAt?: string;
+};
+
+// GET /api/courses/{courseId}/schedules/{scheduleId}/preview-guides
+export async function getPreviewGuide(
   courseId: string,
-  payload: {
-    scheduleId: string;
-    title: string;
-    content?: string;
-  },
-): Promise<Material> {
-  return request(`/api/courses/${courseId}/materials/preview`, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  scheduleId: string,
+): Promise<PreviewGuide> {
+  return request(
+    `/api/courses/${courseId}/schedules/${scheduleId}/preview-guides`,
+  );
 }
 
+// POST /api/courses/{courseId}/schedules/{scheduleId}/preview-guides → 202
+export async function createPreviewGuide(
+  courseId: string,
+  scheduleId: string,
+): Promise<{ previewGuideId: string; scheduleId: string; status: string; message: string }> {
+  return request(
+    `/api/courses/${courseId}/schedules/${scheduleId}/preview-guides`,
+    { method: "POST" },
+  );
+}
+
+// GET /api/courses/{courseId}/schedules/{scheduleId}/review-summaries
+export async function getReviewSummary(
+  courseId: string,
+  scheduleId: string,
+): Promise<ReviewSummary> {
+  return request(
+    `/api/courses/${courseId}/schedules/${scheduleId}/review-summaries`,
+  );
+}
+
+// POST /api/courses/{courseId}/schedules/{scheduleId}/review-summaries → 202
 export async function createReviewSummary(
   courseId: string,
-  payload: {
-    scheduleId: string;
-    title: string;
-    content?: string;
-  },
-): Promise<Material> {
-  return request(`/api/courses/${courseId}/materials/review`, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  scheduleId: string,
+): Promise<{ reviewSummaryId: string; scheduleId: string; status: string; message: string }> {
+  return request(
+    `/api/courses/${courseId}/schedules/${scheduleId}/review-summaries`,
+    { method: "POST" },
+  );
 }
 
 export async function uploadMaterial(

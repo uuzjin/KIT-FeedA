@@ -3,27 +3,34 @@ import {
   getCourseStudents,
   getCourseScripts,
   getCourseSchedules,
-  getCourseMaterials,
+  getPreviewGuide,
+  getReviewSummary,
+  type PreviewGuide,
+  type ReviewSummary,
 } from "@/lib/api";
 
 export async function loadCourseWorkspace(courseId: string) {
-  const [course, enrollments, scriptsRes, schedulesRes, previewRes, reviewRes] =
-    await Promise.all([
-      getCourseDetail(courseId),
-      getCourseStudents(courseId),
-      getCourseScripts(courseId),
-      getCourseSchedules(courseId),
-      getCourseMaterials(courseId, "PREVIEW_GUIDE"),
-      getCourseMaterials(courseId, "REVIEW_SUMMARY"),
-    ]);
+  const [course, enrollments, scriptsRes, schedulesRes] = await Promise.all([
+    getCourseDetail(courseId),
+    getCourseStudents(courseId),
+    getCourseScripts(courseId),
+    getCourseSchedules(courseId),
+  ]);
 
-  const scheduleExtras = schedulesRes.schedules.map((s) => ({
-    schedule: s,
-    preview:
-      previewRes.materials.find((m) => m.scheduleId === s.scheduleId) || null,
-    review:
-      reviewRes.materials.find((m) => m.scheduleId === s.scheduleId) || null,
-  }));
+  // Fetch preview/review per-schedule (404 = not generated yet, treat as null)
+  const scheduleExtras = await Promise.all(
+    schedulesRes.schedules.map(async (s) => {
+      const [preview, review] = await Promise.all([
+        getPreviewGuide(courseId, s.scheduleId).catch(
+          () => null as PreviewGuide | null,
+        ),
+        getReviewSummary(courseId, s.scheduleId).catch(
+          () => null as ReviewSummary | null,
+        ),
+      ]);
+      return { schedule: s, preview, review };
+    }),
+  );
 
   return {
     course,

@@ -5,14 +5,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Progress } from "@/components/ui/progress";
 import {
   Upload,
   FileText,
   Sparkles,
   Clock,
   CheckCircle,
-  AlertTriangle,
   Eye,
   Edit,
   MoreVertical,
@@ -27,30 +25,44 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   getCourses,
+  getCourseSchedules,
+  getPreviewGuide,
+  getReviewSummary,
+  getCourseScripts,
+  uploadScript,
+  uploadAudio,
   getAudio,
   type Course,
-  type AudioConvertTask,
+  type PreviewGuide,
+  type ReviewSummary,
+  type CourseScriptListItem,
+  type AudioItem,
 } from "@/lib/api";
-import { supabase } from "@/lib/supabase/client";
+
+type SchedulePreview = {
+  scheduleId: string;
+  weekNumber: number;
+  topic: string;
+  preview: PreviewGuide | null;
+  review: ReviewSummary | null;
+};
 
 export function TeacherMaterials() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
-  const [previewMaterials, setPreviewMaterials] = useState<any[]>([]);
-  const [reviewMaterials, setReviewMaterials] = useState<any[]>([]);
-  const [scripts, setScripts] = useState<any[]>([]);
+  const [schedules, setSchedules] = useState<SchedulePreview[]>([]);
+  const [scripts, setScripts] = useState<CourseScriptListItem[]>([]);
 
   const [activeTab, setActiveTab] = useState("preview");
-  const [audioTask, setAudioTask] = useState<AudioConvertTask | null>(null);
+  const [audioTask, setAudioTask] = useState<(AudioItem & { taskId: string }) | null>(null);
   const [isStartingConvert, setIsStartingConvert] = useState(false);
   const [isUploadingScript, setIsUploadingScript] = useState(false);
   const scriptInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
 
-  // Active courseId — use selected course if set, otherwise first from list
   const courseId = selectedCourseId ?? courses[0]?.courseId ?? null;
 
-  // Load instructor's courses on mount
+  // Load instructor's courses
   useEffect(() => {
     const loadCourses = async () => {
       try {
@@ -63,109 +75,49 @@ export function TeacherMaterials() {
     void loadCourses();
   }, []);
 
+  // Load schedules + per-schedule preview/review guides + scripts
   useEffect(() => {
     if (!courseId) return;
-    const fetchMaterialsData = async () => {
+
+    const loadData = async () => {
       try {
-        // 1. 예습 자료 (preview_guides) 조회
-        const { data: previewData, error: previewError } = await supabase
-          .from("preview_guides")
-          .select("*")
-          .eq("course_id", courseId)
-          .order("created_at", { ascending: false });
+        const [schedulesRes, scriptsRes] = await Promise.all([
+          getCourseSchedules(courseId),
+          getCourseScripts(courseId),
+        ]);
 
-        if (!previewError && previewData) {
-          setPreviewMaterials(
-            previewData.map((p) => ({
-              id: p.id,
-              week: "주차 미정", // 필요 시 schedule_id와 조인하여 표시
-              title: p.title || "제목 없는 예습 가이드",
-              status: p.status === "completed" ? "published" : "draft",
-              lastModified: new Date(p.created_at).toLocaleDateString(),
-              aiAnalysis: null,
-            })),
-          );
-        }
-
-        // 2. 복습 자료 (review_summaries) 조회
-        const { data: reviewData, error: reviewError } = await supabase
-          .from("review_summaries")
-          .select("*")
-          .eq("course_id", courseId)
-          .order("created_at", { ascending: false });
-
-        if (!reviewError && reviewData) {
-          setReviewMaterials(
-            reviewData.map((r) => ({
-              id: r.id,
-              week: "주차 미정",
-              title: r.title || "제목 없는 복습 요약",
-              status: r.status === "completed" ? "published" : "draft",
-              downloads: 0,
-              lastModified: new Date(r.created_at).toLocaleDateString(),
-            })),
-          );
-        }
-
-        // 3. 스크립트/음성 목록 조회 (백엔드 API 호출)
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        const headers: Record<string, string> = {};
-        if (session?.access_token) {
-          headers["Authorization"] = `Bearer ${session.access_token}`;
-        }
-
-        const res = await fetch(
-          `${process.env.NEXT_PUBLIC_API_BASE_URL || ""}/api/courses/${courseId}/scripts`,
-          { headers },
+        // Fetch preview/review for each schedule in parallel (null = not generated yet)
+        const scheduleData = await Promise.all(
+          schedulesRes.schedules.map(async (s) => {
+            const [preview, review] = await Promise.all([
+              getPreviewGuide(courseId, s.scheduleId).catch(() => null as PreviewGuide | null),
+              getReviewSummary(courseId, s.scheduleId).catch(() => null as ReviewSummary | null),
+            ]);
+            return { scheduleId: s.scheduleId, weekNumber: s.weekNumber, topic: s.topic, preview, review };
+          }),
         );
 
-        if (res.ok) {
-          const scriptData = await res.json();
-          const list = scriptData.scripts || scriptData; // 백엔드 응답 포맷 대응
-          if (Array.isArray(list)) {
-            setScripts(
-              list.map((s: any) => ({
-                id: s.id,
-                title: s.title || s.file_name || "업로드된 스크립트",
-                format: (s.file_name?.split(".").pop() || "문서").toUpperCase(),
-                uploadDate: new Date(
-                  s.created_at || Date.now(),
-                ).toLocaleDateString(),
-                status: s.status === "completed" ? "completed" : "analyzing",
-                progress: s.progress || 0,
-                issues: s.issues_count || 0,
-              })),
-            );
-          }
-        }
-      } catch (error) {
-        console.error("강의 자료 데이터를 불러오는 중 오류 발생:", error);
+        setSchedules(scheduleData);
+        setScripts(scriptsRes.scripts ?? []);
+      } catch (err) {
+        console.error("강의 자료 데이터 로드 실패:", err);
       }
     };
 
-    void fetchMaterialsData();
+    void loadData();
   }, [courseId]);
 
-  // Poll audio transcription status using the correct course-scoped endpoint
+  // Poll audio transcription status
   useEffect(() => {
-    if (!audioTask || !courseId || audioTask.status === "completed") {
+    if (!audioTask || !courseId || audioTask.status === "COMPLETED" || audioTask.status === "FAILED") {
       return;
     }
 
     const intervalId = window.setInterval(async () => {
       try {
-        const item = await getAudio(courseId, audioTask.task_id);
-        // Map AudioItem → AudioConvertTask shape used by the component
+        const item = await getAudio(courseId, audioTask.taskId);
         setAudioTask((prev) =>
-          prev
-            ? {
-                ...prev,
-                status: item.status === "COMPLETED" ? "completed" : "processing",
-                transcript_preview: item.transcriptPreview,
-              }
-            : prev,
+          prev ? { ...prev, status: item.status, transcriptPreview: item.transcriptPreview } : prev,
         );
         if (item.status === "COMPLETED" || item.status === "FAILED") {
           window.clearInterval(intervalId);
@@ -180,41 +132,19 @@ export function TeacherMaterials() {
 
   const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !courseId) return;
 
     setIsStartingConvert(true);
-    const formData = new FormData();
-    formData.append("file", file);
     try {
-      // Supabase 세션에서 유효한 JWT 토큰 가져오기
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      const headers: Record<string, string> = {};
-      if (session?.access_token) {
-        headers["Authorization"] = `Bearer ${session.access_token}`;
-      }
-
-      // api.ts 대신 직접 fetch를 사용하여 FormData 전송
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL || ""}/api/courses/${courseId}/audios`,
-        {
-          method: "POST",
-          body: formData,
-          headers,
-        },
-      );
-      if (!res.ok) throw new Error("오디오 업로드 실패");
-
-      const data = await res.json();
-      // 백엔드 응답을 프론트엔드 상태에 맞게 매핑
+      const data = await uploadAudio(courseId, file);
       setAudioTask({
-        task_id: data.audioId,
-        file_name: data.fileName,
+        audioId: data.audioId,
+        taskId: data.audioId,
+        courseId,
+        fileName: data.fileName,
         status: data.status,
-        progress: 0,
-        transcript_preview: null,
+        transcriptPreview: null,
+        createdAt: new Date().toISOString(),
       });
       setActiveTab("scripts");
     } catch (error) {
@@ -222,51 +152,50 @@ export function TeacherMaterials() {
       alert("음성 변환 요청 중 오류가 발생했습니다.");
     } finally {
       setIsStartingConvert(false);
-      if (e.target) e.target.value = ""; // input 초기화
+      if (e.target) e.target.value = "";
     }
   };
 
-  // ── 2. 스크립트 업로드 및 AI 분석 로직 연결 ──
   const handleScriptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !courseId) return;
 
     setIsUploadingScript(true);
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("title", file.name); // 백엔드에서 title을 필수로 요구함
-
     try {
-      // Supabase 세션에서 유효한 JWT 토큰 가져오기
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      const headers: Record<string, string> = {};
-      if (session?.access_token) {
-        headers["Authorization"] = `Bearer ${session.access_token}`;
-      }
-
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL || ""}/api/courses/${courseId}/scripts`,
-        {
-          method: "POST",
-          body: formData,
-          headers,
-        },
-      );
-      if (!res.ok) throw new Error("스크립트 업로드 실패");
-
+      await uploadScript(courseId, { file, title: file.name });
       alert("스크립트가 성공적으로 업로드되어 AI 분석이 시작되었습니다!");
+      // Refresh scripts list
+      const res = await getCourseScripts(courseId);
+      setScripts(res.scripts ?? []);
       setActiveTab("scripts");
     } catch (error) {
       console.error(error);
       alert("스크립트 업로드 중 오류가 발생했습니다.");
     } finally {
       setIsUploadingScript(false);
-      if (e.target) e.target.value = ""; // input 초기화
+      if (e.target) e.target.value = "";
     }
   };
+
+  const previewMaterials = schedules
+    .filter((s) => s.preview !== null)
+    .map((s) => ({
+      id: s.preview!.previewGuideId,
+      week: `${s.weekNumber}주차`,
+      title: s.preview!.title || `${s.weekNumber}주차 예습 가이드`,
+      status: s.preview!.status === "completed" ? "published" : s.preview!.status,
+      lastModified: new Date(s.preview!.createdAt).toLocaleDateString("ko-KR"),
+    }));
+
+  const reviewMaterials = schedules
+    .filter((s) => s.review !== null)
+    .map((s) => ({
+      id: s.review!.reviewSummaryId,
+      week: `${s.weekNumber}주차`,
+      title: s.review!.title || `${s.weekNumber}주차 복습 요약`,
+      status: s.review!.status === "completed" ? "published" : s.review!.status,
+      lastModified: new Date(s.review!.createdAt).toLocaleDateString("ko-KR"),
+    }));
 
   return (
     <div className="flex flex-col gap-5 p-4 pb-24">
@@ -327,7 +256,6 @@ export function TeacherMaterials() {
             </div>
           </div>
           <div className="mt-4 flex gap-2">
-            {/* 숨겨진 파일 입력 필드 */}
             <input
               type="file"
               ref={scriptInputRef}
@@ -348,7 +276,7 @@ export function TeacherMaterials() {
               variant="secondary"
               className="flex-1 gap-2"
               onClick={() => scriptInputRef.current?.click()}
-              disabled={isUploadingScript}
+              disabled={isUploadingScript || !courseId}
             >
               <FileUp className="size-4" />
               {isUploadingScript ? "업로드 중..." : "스크립트 업로드"}
@@ -358,7 +286,7 @@ export function TeacherMaterials() {
               variant="secondary"
               className="flex-1 gap-2"
               onClick={() => audioInputRef.current?.click()}
-              disabled={isStartingConvert}
+              disabled={isStartingConvert || !courseId}
             >
               <Mic className="size-4" />
               {isStartingConvert ? "요청 중..." : "음성 변환"}
@@ -372,13 +300,13 @@ export function TeacherMaterials() {
           <CardContent className="space-y-2 p-4">
             <p className="text-sm text-muted-foreground">
               {"음성 변환: "}
-              {audioTask.file_name}
+              {audioTask.fileName}
               {" · "}
-              {audioTask.status === "completed" ? "완료" : "처리 중"}
+              {audioTask.status === "COMPLETED" ? "완료" : "처리 중"}
             </p>
-            {audioTask.transcript_preview && (
+            {audioTask.transcriptPreview && (
               <p className="text-xs text-muted-foreground line-clamp-2">
-                {audioTask.transcript_preview}
+                {audioTask.transcriptPreview}
               </p>
             )}
           </CardContent>
@@ -395,6 +323,11 @@ export function TeacherMaterials() {
 
         <TabsContent value="preview" className="mt-4">
           <div className="flex flex-col gap-3">
+            {previewMaterials.length === 0 && (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                {"생성된 예습 자료가 없습니다."}
+              </p>
+            )}
             {previewMaterials.map((material) => (
               <Card key={material.id} className="border-border/40">
                 <CardContent className="p-4">
@@ -404,11 +337,15 @@ export function TeacherMaterials() {
                         className={`flex size-10 items-center justify-center rounded-xl ${
                           material.status === "published"
                             ? "bg-emerald-500/10"
-                            : "bg-amber-500/10"
+                            : material.status === "generating"
+                              ? "bg-primary/10"
+                              : "bg-amber-500/10"
                         }`}
                       >
                         {material.status === "published" ? (
                           <CheckCircle className="size-5 text-emerald-500" />
+                        ) : material.status === "generating" ? (
+                          <Clock className="size-5 text-primary" />
                         ) : (
                           <Edit className="size-5 text-amber-500" />
                         )}
@@ -419,16 +356,14 @@ export function TeacherMaterials() {
                             {material.week}
                           </Badge>
                           <Badge
-                            variant={
-                              material.status === "published"
-                                ? "default"
-                                : "secondary"
-                            }
+                            variant={material.status === "published" ? "default" : "secondary"}
                             className={`text-xs ${material.status === "published" ? "bg-emerald-500" : ""}`}
                           >
                             {material.status === "published"
-                              ? "발행됨"
-                              : "임시저장"}
+                              ? "완료"
+                              : material.status === "generating"
+                                ? "생성 중"
+                                : "실패"}
                           </Badge>
                         </div>
                         <p className="mt-1 font-medium text-foreground">
@@ -450,36 +385,9 @@ export function TeacherMaterials() {
                           <Eye className="mr-2 size-4" />
                           {"미리보기"}
                         </DropdownMenuItem>
-                        <DropdownMenuItem>
-                          <Edit className="mr-2 size-4" />
-                          {"수정"}
-                        </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
-                  {material.aiAnalysis && (
-                    <div className="mt-3 flex items-center gap-3 rounded-lg bg-muted/50 p-2">
-                      <Sparkles className="size-4 text-primary" />
-                      <span className="text-xs text-muted-foreground">
-                        {"AI 분석 점수:"}
-                      </span>
-                      <span
-                        className={`text-xs font-semibold ${material.aiAnalysis.score >= 90 ? "text-emerald-500" : "text-amber-500"}`}
-                      >
-                        {material.aiAnalysis.score}
-                        {"점"}
-                      </span>
-                      {material.aiAnalysis.issues > 0 && (
-                        <Badge
-                          variant="destructive"
-                          className="ml-auto text-xs"
-                        >
-                          {material.aiAnalysis.issues}
-                          {"개 개선점"}
-                        </Badge>
-                      )}
-                    </div>
-                  )}
                 </CardContent>
               </Card>
             ))}
@@ -488,27 +396,53 @@ export function TeacherMaterials() {
 
         <TabsContent value="review" className="mt-4">
           <div className="flex flex-col gap-3">
+            {reviewMaterials.length === 0 && (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                {"생성된 복습 자료가 없습니다."}
+              </p>
+            )}
             {reviewMaterials.map((material) => (
               <Card key={material.id} className="border-border/40">
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between">
                     <div className="flex items-start gap-3">
-                      <div className="flex size-10 items-center justify-center rounded-xl bg-emerald-500/10">
-                        <FileText className="size-5 text-emerald-500" />
+                      <div
+                        className={`flex size-10 items-center justify-center rounded-xl ${
+                          material.status === "published"
+                            ? "bg-emerald-500/10"
+                            : material.status === "generating"
+                              ? "bg-primary/10"
+                              : "bg-amber-500/10"
+                        }`}
+                      >
+                        {material.status === "published" ? (
+                          <CheckCircle className="size-5 text-emerald-500" />
+                        ) : material.status === "generating" ? (
+                          <Clock className="size-5 text-primary" />
+                        ) : (
+                          <FileText className="size-5 text-amber-500" />
+                        )}
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
                           <Badge variant="outline" className="text-xs">
                             {material.week}
                           </Badge>
+                          <Badge
+                            variant={material.status === "published" ? "default" : "secondary"}
+                            className={`text-xs ${material.status === "published" ? "bg-emerald-500" : ""}`}
+                          >
+                            {material.status === "published"
+                              ? "완료"
+                              : material.status === "generating"
+                                ? "생성 중"
+                                : "실패"}
+                          </Badge>
                         </div>
                         <p className="mt-1 font-medium text-foreground">
                           {material.title}
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          {"다운로드 "}
-                          {material.downloads}
-                          {"회 · "}
                           {material.lastModified}
                         </p>
                       </div>
@@ -523,10 +457,6 @@ export function TeacherMaterials() {
                         <DropdownMenuItem>
                           <Eye className="mr-2 size-4" />
                           {"미리보기"}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem>
-                          <Edit className="mr-2 size-4" />
-                          {"수정"}
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -539,81 +469,41 @@ export function TeacherMaterials() {
 
         <TabsContent value="scripts" className="mt-4">
           <div className="flex flex-col gap-3">
-            {scripts.map((script) => (
-              <Card key={script.id} className="border-border/40">
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between">
+            {scripts.length === 0 && (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                {"업로드된 스크립트가 없습니다."}
+              </p>
+            )}
+            {scripts.map((script) => {
+              const ext = script.fileName?.split(".").pop()?.toUpperCase() ?? "파일";
+              const uploadedDate = script.uploadedAt
+                ? new Date(script.uploadedAt).toLocaleDateString("ko-KR")
+                : "-";
+              return (
+                <Card key={script.scriptId} className="border-border/40">
+                  <CardContent className="p-4">
                     <div className="flex items-start gap-3">
-                      <div
-                        className={`flex size-10 items-center justify-center rounded-xl ${
-                          script.status === "completed"
-                            ? "bg-emerald-500/10"
-                            : "bg-primary/10"
-                        }`}
-                      >
-                        {script.status === "completed" ? (
-                          <CheckCircle className="size-5 text-emerald-500" />
-                        ) : (
-                          <Clock className="size-5 text-primary" />
-                        )}
+                      <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10">
+                        <FileText className="size-5 text-primary" />
                       </div>
                       <div className="flex-1">
                         <div className="flex items-center gap-2">
                           <Badge variant="outline" className="text-xs">
-                            {script.format}
-                          </Badge>
-                          <Badge
-                            variant={
-                              script.status === "completed"
-                                ? "default"
-                                : "secondary"
-                            }
-                            className={`text-xs ${script.status === "completed" ? "bg-emerald-500" : ""}`}
-                          >
-                            {script.status === "completed"
-                              ? "분석 완료"
-                              : "분석 중"}
+                            {ext}
                           </Badge>
                         </div>
                         <p className="mt-1 font-medium text-foreground">
                           {script.title}
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          {script.uploadDate}
+                          {uploadedDate}
                         </p>
-                        {script.status === "analyzing" && (
-                          <div className="mt-2 flex items-center gap-2">
-                            <Progress
-                              value={script.progress}
-                              className="h-1.5 flex-1"
-                            />
-                            <span className="text-xs text-muted-foreground">
-                              {script.progress}%
-                            </span>
-                          </div>
-                        )}
-                        {script.status === "completed" &&
-                          script.issues &&
-                          script.issues > 0 && (
-                            <div className="mt-2 flex items-center gap-2 text-xs">
-                              <AlertTriangle className="size-3 text-amber-500" />
-                              <span className="text-amber-500">
-                                {script.issues}
-                                {"개의 보완점 발견"}
-                              </span>
-                            </div>
-                          )}
                       </div>
                     </div>
-                    {script.status === "completed" && (
-                      <Button size="sm" variant="outline">
-                        {"리포트 보기"}
-                      </Button>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         </TabsContent>
       </Tabs>
