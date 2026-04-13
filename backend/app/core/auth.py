@@ -88,21 +88,40 @@ async def get_current_user(
     if not user_id:
         raise HTTPException(status_code=401, detail="토큰에서 사용자 정보를 확인할 수 없습니다.")
 
+    # 1. 프로필 조회 (삭제 여부 확인)
+    profile_data = None
     try:
         result = supabase.table("profiles").select("id, name, email, role, deleted_at").eq("id", user_id).maybe_single().execute()
-        data = result.data
+        profile_data = result.data
     except Exception as e:
         logger.warning("Supabase profiles 조회 실패 (user_id=%s): %s", user_id, e)
-        data = None
 
-    if data:
-        if data.get("deleted_at") is not None:
-            raise HTTPException(status_code=403, detail="탈퇴 처리된 계정입니다.")
-        return data
+    # 2. 탈퇴한 계정인 경우 처리
+    if profile_data and profile_data.get("deleted_at") is not None:
+        try:
+            # [핵심] 탈퇴한 계정으로 다시 접근한 경우, Supabase Auth에서도 영구 삭제를 시도합니다.
+            # 이를 통해 사용자가 동일한 이메일로 다시 가입할 수 있게 됩니다.
+            supabase.auth.admin.delete_user(user_id)
+            logger.info("탈퇴한 계정(좀비 계정) 영구 삭제 완료 (user_id=%s)", user_id)
+        except Exception as delete_err:
+            logger.error("좀비 계정 영구 삭제 실패 (user_id=%s): %s", user_id, delete_err)
+        
+        raise HTTPException(
+            status_code=403, 
+            detail="이미 탈퇴 처리된 계정입니다. 계정 정보가 완전히 삭제되었으니 다시 회원가입을 진행해주세요."
+        )
 
-    logger.info("profiles 미존재/조회 불가 — JWT 클레임으로 폴백 (user_id=%s)", user_id)
+    # 3. 프로필이 존재하는 경우 반환
+    if profile_data:
+        return profile_data
+
+    # 4. 프로필이 없는데 인증은 된 경우 (인증 정보만 남은 경우)
+    logger.info("profiles 미존재 — JWT 클레임으로 폴백 (user_id=%s)", user_id)
     meta = payload.get("user_metadata") or {}
     email = payload.get("email") or ""
+    
+    # 만약 profiles에 데이터가 없는데 인증이 성공했다면, 이는 이미 삭제되었거나 비정상적인 상태입니다.
+    # 다시 가입할 수 있도록 정보를 반환하되, 명확한 역할을 부여합니다.
     return {
         "id": user_id,
         "email": email,
