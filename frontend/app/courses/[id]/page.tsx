@@ -35,12 +35,16 @@ import {
 import {
   ArrowLeft,
   BookOpen,
+  Bot,
   CalendarDays,
   Clock,
   FileText,
   FileUp,
+  HelpCircle,
+  Bell,
   Users,
   Trash2,
+  ChevronRight,
 } from "lucide-react";
 
 function formatDays(days: string[]) {
@@ -251,6 +255,19 @@ export default function CourseDetailPage() {
                   )}
                 </div>
               </div>
+
+              <Separator className="my-8" />
+
+              {/* 기능 바로가기 */}
+              <QuickNav
+                courseId={courseId}
+                course={course}
+                isInstructor={user.role === "INSTRUCTOR"}
+                onNavigate={(dest) => {
+                  setSelectedCourse(course);
+                  router.push(dest);
+                }}
+              />
 
               <Separator className="my-8" />
 
@@ -479,6 +496,90 @@ function ScheduleMaterialsList({
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ── 기능 바로가기 컴포넌트 ────────────────────────────────────────────────────
+
+type NavItem = {
+  label: string;
+  description: string;
+  icon: React.ElementType;
+  dest: string;
+  color: string;
+  instructorOnly?: boolean;
+};
+
+const NAV_ITEMS: NavItem[] = [
+  {
+    label: "강의 자료",
+    description: "스크립트 업로드·분석, 예습/복습 생성",
+    icon: FileText,
+    dest: "/materials",
+    color: "text-blue-500 bg-blue-500/10",
+  },
+  {
+    label: "퀴즈 관리",
+    description: "퀴즈 출제, 이해도 리포트 확인",
+    icon: HelpCircle,
+    dest: "/quiz",
+    color: "text-violet-500 bg-violet-500/10",
+  },
+  {
+    label: "공지사항",
+    description: "예습·복습 공지문 생성 및 배포",
+    icon: Bell,
+    dest: "/announcements",
+    color: "text-amber-500 bg-amber-500/10",
+  },
+  {
+    label: "AI 학생 시뮬레이션",
+    description: "강의 자료 이해도 사전 진단",
+    icon: Bot,
+    dest: "ai-simulation", // 상대 경로 — onNavigate에서 /courses/{id}/ai-simulation 으로 변환
+    color: "text-emerald-500 bg-emerald-500/10",
+    instructorOnly: true,
+  },
+];
+
+function QuickNav({
+  courseId,
+  course,
+  isInstructor,
+  onNavigate,
+}: {
+  courseId: string;
+  course: { courseId: string };
+  isInstructor: boolean;
+  onNavigate: (dest: string) => void;
+}) {
+  const items = NAV_ITEMS.filter((item) => !item.instructorOnly || isInstructor);
+
+  const resolveDest = (item: NavItem) =>
+    item.dest === "ai-simulation" ? `/courses/${courseId}/ai-simulation` : item.dest;
+
+  return (
+    <div>
+      <h2 className="mb-4 text-base font-semibold tracking-tight">기능 바로가기</h2>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {items.map((item) => (
+          <button
+            key={item.label}
+            onClick={() => onNavigate(resolveDest(item))}
+            className="flex items-center gap-4 rounded-xl border border-border/60 bg-card/60 p-4 text-left transition-colors hover:bg-muted/60 active:scale-[0.98]"
+          >
+            <div className={`flex size-11 shrink-0 items-center justify-center rounded-xl ${item.color}`}>
+              <item.icon className="size-5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-medium text-foreground">{item.label}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground line-clamp-1">{item.description}</p>
+            </div>
+            <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
