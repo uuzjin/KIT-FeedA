@@ -31,14 +31,28 @@ import {
   uploadScript,
   uploadAudio,
   getAudioConvertTask,
+  listAudios,
   generatePreviewGuide,
   generateReviewSummary,
+  getPostAnalyses,
+  triggerStructureAnalysis,
+  triggerConceptsAnalysis,
   type CourseScriptListItem,
   type PreviewGuide,
   type ReviewSummary,
+  type PostAnalysisItem,
+  type AudioItem,
 } from "@/lib/api";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { Loader2 } from "lucide-react";
 import { useCourse } from "@/contexts/course-context";
 import { CourseInfoBanner } from "@/components/layout/course-info-banner";
+import { useRealtimeSubscription } from "@/lib/hooks/use-realtime-subscription";
 
 type SchedulePreview = {
   scheduleId: string;
@@ -60,9 +74,27 @@ export function TeacherMaterials() {
 
   const [activeTab, setActiveTab] = useState("preview");
   const [audioTask, setAudioTask] = useState<any | null>(null);
-  
+  const [audioList, setAudioList] = useState<AudioItem[]>([]);
+  const [transcriptSheet, setTranscriptSheet] = useState<{
+    open: boolean;
+    audioId: string | null;
+    fileName: string;
+    transcript: string | null;
+    loading: boolean;
+  }>({ open: false, audioId: null, fileName: "", transcript: null, loading: false });
+
   const [isStartingConvert, setIsStartingConvert] = useState(false);
   const [isUploadingScript, setIsUploadingScript] = useState(false);
+
+  // 수업 후 분석 상태
+  const [postAnalysisSheet, setPostAnalysisSheet] = useState<{
+    open: boolean;
+    scriptId: string | null;
+    scriptTitle: string;
+    analyses: PostAnalysisItem[];
+    loading: boolean;
+    triggering: string | null; // "structure" | "concepts" | null
+  }>({ open: false, scriptId: null, scriptTitle: "", analyses: [], loading: false, triggering: null });
   
   const scriptInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
@@ -73,9 +105,10 @@ export function TeacherMaterials() {
 
     const loadData = async () => {
       try {
-        const [schedulesRes, scriptsRes] = await Promise.all([
+        const [schedulesRes, scriptsRes, audiosRes] = await Promise.all([
           getCourseSchedules(courseId),
           getCourseScripts(courseId),
+          listAudios(courseId).catch(() => ({ audios: [], totalCount: 0 })),
         ]);
 
         // Fetch preview/review for each schedule in parallel (null = not generated yet)
@@ -96,7 +129,8 @@ export function TeacherMaterials() {
         );
 
         setSchedules(scheduleData);
-        
+        setAudioList(audiosRes.audios);
+
         const list = scriptsRes.scripts;
         if (Array.isArray(list)) {
           setScripts(
@@ -120,56 +154,55 @@ export function TeacherMaterials() {
     void loadData();
   }, [courseId]);
 
-  // Poll audio transcription status
-  useEffect(() => {
-    if (!courseId || !audioTask || audioTask.status === "COMPLETED" || audioTask.status === "FAILED") {
-      return;
-    }
+  // ── 오디오 변환 상태: Supabase Realtime 구독 ──
+  // course_id로 필터링하여 해당 강의의 모든 오디오 상태를 감시
+  const hasPendingAudio = audioList.some(
+    (a) => a.status !== "COMPLETED" && a.status !== "FAILED",
+  );
+  useRealtimeSubscription({
+    table: "audios",
+    filter: courseId ? `course_id=eq.${courseId}` : undefined,
+    event: "UPDATE",
+    enabled: !!courseId && hasPendingAudio,
+    onUpdate: (payload) => {
+      const row = payload.new;
+      setAudioTask((prev: typeof audioTask) =>
+        prev?.audioId === row.id
+          ? { ...prev, status: (row.status as string) ?? prev.status }
+          : prev,
+      );
+      setAudioList((prev) =>
+        prev.map((a) =>
+          a.audioId === row.id
+            ? { ...a, status: (row.status as string) ?? a.status }
+            : a,
+        ),
+      );
+    },
+  });
 
-    const intervalId = window.setInterval(async () => {
-      try {
-        const task = await getAudioConvertTask(
-          courseId,
-          audioTask.audioId
-        );
-        setAudioTask(task);
-      } catch {
-        window.clearInterval(intervalId);
-      }
-    }, 2000);
-
-    return () => window.clearInterval(intervalId);
-  }, [audioTask, courseId]);
-
-  // ── 스크립트 상태 폴링 ──
-  useEffect(() => {
-    const hasAnalyzing = scripts.some((s) => s.status === "analyzing");
-    if (!hasAnalyzing || !courseId) return;
-
-    const interval = setInterval(async () => {
-      try {
-        const scriptData = await getCourseScripts(courseId);
-        const list = scriptData.scripts;
-        if (Array.isArray(list)) {
-          setScripts(
-            list.map((s: CourseScriptListItem) => ({
-              id: s.scriptId,
-              scheduleId: s.scheduleId,
-              title: s.title || s.fileName || "업로드된 자료",
-              format: (s.fileName.split(".").pop() || "문서").toUpperCase(),
-              uploadDate: new Date(s.uploadedAt).toLocaleDateString(),
-              status: s.status === "completed" ? "completed" : "analyzing",
-              progress: 0,
-              issues: 0,
-            })),
-          );
-        }
-      } catch (e) {
-        console.error("스크립트 폴링 실패:", e);
-      }
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [scripts, courseId]);
+  // ── 스크립트 분석 상태: Supabase Realtime 구독 ──
+  // scripts 테이블에서 해당 강의 스크립트가 UPDATE되면 상태 갱신
+  useRealtimeSubscription({
+    table: "scripts",
+    filter: courseId ? `course_id=eq.${courseId}` : undefined,
+    event: "UPDATE",
+    enabled: !!courseId && scripts.some((s) => s.status === "analyzing"),
+    onUpdate: (payload) => {
+      const row = payload.new;
+      if (!row.id) return;
+      setScripts((prev) =>
+        prev.map((s) =>
+          s.id === row.id
+            ? {
+                ...s,
+                status: (row.status as string) === "completed" ? "completed" : "analyzing",
+              }
+            : s,
+        ),
+      );
+    },
+  });
 
   // ── 남은 시간 시뮬레이션 ──
   useEffect(() => {
@@ -232,13 +265,16 @@ export function TeacherMaterials() {
     setIsStartingConvert(true);
     try {
       const data = await uploadAudio(courseId, file);
-      setAudioTask({
+      const newAudio: AudioItem = {
         audioId: data.audioId,
+        courseId,
         fileName: data.fileName,
         status: data.status,
         transcriptPreview: null,
         createdAt: new Date().toISOString(),
-      });
+      };
+      setAudioTask(newAudio);
+      setAudioList((prev) => [newAudio, ...prev]);
       setActiveTab("scripts");
     } catch (error) {
       console.error(error);
@@ -280,6 +316,46 @@ export function TeacherMaterials() {
     } finally {
       setIsUploadingScript(false);
       if (e.target) e.target.value = "";
+    }
+  };
+
+  const handleOpenPostAnalysis = async (scriptId: string, scriptTitle: string) => {
+    if (!courseId) return;
+    setPostAnalysisSheet({ open: true, scriptId, scriptTitle, analyses: [], loading: true, triggering: null });
+    try {
+      const data = await getPostAnalyses(courseId, scriptId);
+      setPostAnalysisSheet((prev) => ({ ...prev, analyses: data.postAnalyses, loading: false }));
+    } catch {
+      setPostAnalysisSheet((prev) => ({ ...prev, loading: false }));
+    }
+  };
+
+  const handleOpenTranscript = async (audio: AudioItem) => {
+    setTranscriptSheet({ open: true, audioId: audio.audioId, fileName: audio.fileName, transcript: null, loading: true });
+    try {
+      const data = await getAudioConvertTask(courseId!, audio.audioId);
+      setTranscriptSheet((prev) => ({ ...prev, transcript: data.transcript ?? null, loading: false }));
+    } catch {
+      setTranscriptSheet((prev) => ({ ...prev, loading: false }));
+    }
+  };
+
+  const handleTriggerAnalysis = async (type: "structure" | "concepts") => {
+    const { scriptId } = postAnalysisSheet;
+    if (!courseId || !scriptId) return;
+    setPostAnalysisSheet((prev) => ({ ...prev, triggering: type }));
+    try {
+      if (type === "structure") {
+        await triggerStructureAnalysis(courseId, scriptId);
+      } else {
+        await triggerConceptsAnalysis(courseId, scriptId);
+      }
+      // 잠시 후 결과 폴링
+      await new Promise((r) => setTimeout(r, 1500));
+      const data = await getPostAnalyses(courseId, scriptId);
+      setPostAnalysisSheet((prev) => ({ ...prev, analyses: data.postAnalyses, triggering: null }));
+    } catch {
+      setPostAnalysisSheet((prev) => ({ ...prev, triggering: null }));
     }
   };
 
@@ -365,20 +441,41 @@ export function TeacherMaterials() {
         </CardContent>
       </Card>
 
-      {audioTask && (
+      {/* 오디오 목록 */}
+      {audioList.length > 0 && (
         <Card className="border-border/40">
-          <CardContent className="space-y-2 p-4">
-            <p className="text-sm text-muted-foreground">
-              {"음성 변환: "}
-              {audioTask.fileName}
-              {" · "}
-              {audioTask.status === "COMPLETED" ? "완료" : "처리 중"}
-            </p>
-            {audioTask.transcriptPreview && (
-              <p className="text-xs text-muted-foreground line-clamp-2">
-                {audioTask.transcriptPreview}
-              </p>
-            )}
+          <CardContent className="p-4">
+            <p className="mb-3 text-sm font-medium text-foreground">{"음성 변환 목록"}</p>
+            <div className="flex flex-col gap-2">
+              {audioList.map((audio) => (
+                <div
+                  key={audio.audioId}
+                  className="flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Mic className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate text-sm">{audio.fileName}</span>
+                    {audio.status === "COMPLETED" ? (
+                      <CheckCircle className="size-4 shrink-0 text-emerald-500" />
+                    ) : audio.status === "FAILED" ? (
+                      <AlertTriangle className="size-4 shrink-0 text-destructive" />
+                    ) : (
+                      <Loader2 className="size-4 shrink-0 animate-spin text-primary" />
+                    )}
+                  </div>
+                  {audio.status === "COMPLETED" && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="shrink-0 text-xs"
+                      onClick={() => handleOpenTranscript(audio)}
+                    >
+                      {"내용 보기"}
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
           </CardContent>
         </Card>
       )}
@@ -627,8 +724,9 @@ export function TeacherMaterials() {
                           size="sm"
                           variant="default"
                           className="w-full sm:w-auto"
+                          onClick={() => handleOpenPostAnalysis(script.id, script.title)}
                         >
-                          {"리포트 보기"}
+                          {"수업 후 분석"}
                         </Button>
                       </div>
                     )}
@@ -639,6 +737,191 @@ export function TeacherMaterials() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* 트랜스크립트 보기 시트 */}
+      <Sheet
+        open={transcriptSheet.open}
+        onOpenChange={(open) => setTranscriptSheet((prev) => ({ ...prev, open }))}
+      >
+        <SheetContent side="bottom" className="h-[80vh] overflow-y-auto rounded-t-2xl">
+          <SheetHeader className="mb-4">
+            <SheetTitle className="text-base">{"음성 트랜스크립트"}</SheetTitle>
+            <p className="text-sm text-muted-foreground line-clamp-1">{transcriptSheet.fileName}</p>
+          </SheetHeader>
+          {transcriptSheet.loading && (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="size-6 animate-spin text-primary" />
+            </div>
+          )}
+          {!transcriptSheet.loading && (
+            transcriptSheet.transcript ? (
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+                {transcriptSheet.transcript}
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">{"트랜스크립트를 불러올 수 없습니다."}</p>
+            )
+          )}
+        </SheetContent>
+      </Sheet>
+
+      {/* 수업 후 분석 시트 */}
+      <Sheet
+        open={postAnalysisSheet.open}
+        onOpenChange={(open) => setPostAnalysisSheet((prev) => ({ ...prev, open }))}
+      >
+        <SheetContent side="bottom" className="h-[85vh] overflow-y-auto rounded-t-2xl">
+          <SheetHeader className="mb-4">
+            <SheetTitle className="text-base">{"수업 후 분석"}</SheetTitle>
+            <p className="text-sm text-muted-foreground line-clamp-1">{postAnalysisSheet.scriptTitle}</p>
+          </SheetHeader>
+
+          {postAnalysisSheet.loading && (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="size-6 animate-spin text-primary" />
+            </div>
+          )}
+
+          {!postAnalysisSheet.loading && (
+            <div className="flex flex-col gap-4">
+              {/* 구조 분석 */}
+              <PostAnalysisCard
+                label="수업 흐름 구조 분석"
+                type="structure"
+                item={postAnalysisSheet.analyses.find((a) => a.analysisType === "structure") ?? null}
+                triggering={postAnalysisSheet.triggering === "structure"}
+                onTrigger={() => handleTriggerAnalysis("structure")}
+              />
+              {/* 개념어 체크 */}
+              <PostAnalysisCard
+                label="핵심 개념어 체크"
+                type="concepts"
+                item={postAnalysisSheet.analyses.find((a) => a.analysisType === "concepts") ?? null}
+                triggering={postAnalysisSheet.triggering === "concepts"}
+                onTrigger={() => handleTriggerAnalysis("concepts")}
+              />
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
+  );
+}
+
+// ── 수업 후 분석 카드 서브컴포넌트 ───────────────────────────────────────────
+
+function PostAnalysisCard({
+  label,
+  type,
+  item,
+  triggering,
+  onTrigger,
+}: {
+  label: string;
+  type: "structure" | "concepts";
+  item: PostAnalysisItem | null;
+  triggering: boolean;
+  onTrigger: () => void;
+}) {
+  const isPending = item?.status === "pending" || item?.status === "processing";
+
+  return (
+    <Card className="border-border/40">
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="font-medium text-foreground">{label}</h4>
+          {!item || item.status === "failed" ? (
+            <Button size="sm" onClick={onTrigger} disabled={triggering} className="gap-1.5">
+              {triggering ? <Loader2 className="size-3 animate-spin" /> : <Sparkles className="size-3" />}
+              {triggering ? "분석 중..." : "분석 시작"}
+            </Button>
+          ) : isPending ? (
+            <Badge variant="secondary" className="gap-1">
+              <Loader2 className="size-3 animate-spin" />
+              {"처리 중"}
+            </Badge>
+          ) : (
+            <Badge className="bg-emerald-500 text-white">{"완료"}</Badge>
+          )}
+        </div>
+
+        {item?.status === "failed" && (
+          <p className="text-xs text-destructive">{item.errorMessage ?? "분석 실패"}</p>
+        )}
+
+        {isPending && (
+          <p className="text-xs text-muted-foreground">{"AI가 분석 중입니다. 잠시 후 다시 확인하세요."}</p>
+        )}
+
+        {item?.status === "completed" && item.result && type === "structure" && (
+          <div className="flex flex-col gap-2">
+            {item.result.overall_comment && (
+              <p className="text-sm text-muted-foreground">{item.result.overall_comment}</p>
+            )}
+            {item.result.flow_score !== undefined && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">{"흐름 점수"}</span>
+                <Progress value={item.result.flow_score} className="h-1.5 flex-1" />
+                <span className="text-xs font-medium">{item.result.flow_score}{"점"}</span>
+              </div>
+            )}
+            {item.result.structure_map?.map((phase, i) => (
+              <div key={i} className="rounded-lg bg-muted/50 p-3">
+                <Badge variant="outline" className="mb-1 text-xs">{phase.phase}</Badge>
+                <p className="text-xs text-foreground">{phase.description}</p>
+                {phase.weakness && (
+                  <p className="mt-1 text-xs text-amber-600">{"⚠ "}{phase.weakness}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {item?.status === "completed" && item.result && type === "concepts" && (
+          <div className="flex flex-col gap-2">
+            {item.result.overall_comment && (
+              <p className="text-sm text-muted-foreground">{item.result.overall_comment}</p>
+            )}
+            {item.result.coverage_score !== undefined && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">{"개념 전달률"}</span>
+                <Progress value={item.result.coverage_score} className="h-1.5 flex-1" />
+                <span className="text-xs font-medium">{item.result.coverage_score}{"점"}</span>
+              </div>
+            )}
+            {item.result.covered_concepts?.map((c, i) => (
+              <div key={i} className="flex items-start gap-2 rounded-lg bg-muted/50 p-2">
+                <Badge
+                  variant="outline"
+                  className={`shrink-0 text-xs ${
+                    c.coverage === "충분" ? "text-emerald-600" : c.coverage === "부족" ? "text-amber-600" : "text-destructive"
+                  }`}
+                >
+                  {c.coverage}
+                </Badge>
+                <div>
+                  <p className="text-xs font-medium text-foreground">{c.concept}</p>
+                  <p className="text-xs text-muted-foreground">{c.note}</p>
+                </div>
+              </div>
+            ))}
+            {(item.result.missing_concepts?.length ?? 0) > 0 && (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+                <p className="mb-1 text-xs font-medium text-destructive">{"누락된 핵심 개념"}</p>
+                <div className="flex flex-wrap gap-1">
+                  {item.result.missing_concepts!.map((c, i) => (
+                    <Badge key={i} variant="outline" className="text-xs text-destructive">{c}</Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {!item && !triggering && (
+          <p className="text-xs text-muted-foreground">{"아직 분석이 실행되지 않았습니다."}</p>
+        )}
+      </CardContent>
+    </Card>
   );
 }

@@ -624,6 +624,19 @@ export type AudioItem = {
   createdAt: string;
 };
 
+export async function listAudios(courseId: string): Promise<{ audios: AudioItem[]; totalCount: number }> {
+  const res = await request<any>(`/api/courses/${courseId}/audios`);
+  const audios = (res.audios ?? []).map((a: any) => ({
+    audioId: a.audioId,
+    courseId,
+    fileName: a.fileName,
+    status: a.status,
+    transcriptPreview: a.transcript ?? null,
+    createdAt: a.uploadedAt,
+  }));
+  return { audios, totalCount: res.totalCount ?? audios.length };
+}
+
 export async function getAudio(courseId: string, audioId: string): Promise<AudioItem> {
   const res = await request<any>(`/api/courses/${courseId}/audios/${audioId}`);
   return {
@@ -869,14 +882,12 @@ export type QuizSubmission = {
 };
 
 export type ComprehensionReport = {
-  quizId: string;
-  comprehensionLevel: "GOOD" | "PARTIAL" | "INSUFFICIENT";
-  averageScore: number;
-  participationRate: number;
-  questionAnalysis: Array<{
-    questionId: string;
-    correctRate: number;
-    difficulty: string;
+  overallRate: number;
+  level: "GOOD" | "PARTIAL" | "LOW";
+  topicBreakdown: Array<{
+    topic: string;
+    rate: number;
+    level: "GOOD" | "PARTIAL" | "LOW";
   }>;
 };
 
@@ -1441,4 +1452,258 @@ export async function joinCourseByInviteToken(token: string): Promise<{
     method: "POST",
     body: JSON.stringify({ token }),
   });
+}
+
+// ── 수업 사후 분석 (Post-Analysis) ────────────────────────────────────────────
+
+export type PostAnalysisItem = {
+  id: string;
+  analysisType: "structure" | "concepts";
+  status: "pending" | "processing" | "completed" | "failed";
+  result: {
+    // structure 결과
+    structure_map?: Array<{
+      phase: string;
+      description: string;
+      strength: string;
+      weakness: string | null;
+    }>;
+    flow_score?: number;
+    overall_comment?: string;
+    // concepts 결과
+    covered_concepts?: Array<{
+      concept: string;
+      coverage: "충분" | "부족" | "누락";
+      note: string;
+    }>;
+    missing_concepts?: string[];
+    coverage_score?: number;
+  } | null;
+  errorMessage?: string;
+  startedAt?: string;
+  completedAt?: string;
+};
+
+export async function getPostAnalyses(
+  courseId: string,
+  scriptId: string,
+): Promise<{ scriptId: string; postAnalyses: PostAnalysisItem[] }> {
+  return request(
+    `/api/courses/${courseId}/scripts/${scriptId}/post-analyses`,
+  );
+}
+
+export async function triggerStructureAnalysis(
+  courseId: string,
+  scriptId: string,
+): Promise<{ scriptId: string; analysisType: string; status: string; message: string }> {
+  return request(
+    `/api/courses/${courseId}/scripts/${scriptId}/post-analyses/structure`,
+    { method: "POST" },
+  );
+}
+
+export async function triggerConceptsAnalysis(
+  courseId: string,
+  scriptId: string,
+): Promise<{ scriptId: string; analysisType: string; status: string; message: string }> {
+  return request(
+    `/api/courses/${courseId}/scripts/${scriptId}/post-analyses/concepts`,
+    { method: "POST" },
+  );
+}
+
+// ── AI 학생 시뮬레이션 ────────────────────────────────────────────────────────
+
+export type AiSimContext = {
+  contextId: string;
+  scriptIds: string[];
+  loadedDocuments: number;
+  totalTokens: number;
+  model: string;
+  createdAt: string;
+};
+
+export type AiSimAssessment = {
+  assessmentId: string;
+  contextId: string;
+  status: "pending" | "processing" | "completed" | "failed";
+  questionTypes: string[];
+  count: number;
+  questions: Array<{
+    type: string;
+    question: string;
+    answer?: string;
+    options?: string[];
+  }>;
+  errorMessage?: string;
+  completedAt?: string;
+};
+
+export type AiSimAnswers = {
+  answerId: string;
+  assessmentId: string;
+  simulationId: string;
+  status: "pending" | "processing" | "completed" | "failed";
+  answers: Array<{
+    questionIndex: number;
+    answer: string;
+    reasoning?: string;
+  }>;
+  errorMessage?: string;
+  completedAt?: string;
+};
+
+export type AiSimGrades = {
+  gradeId: string;
+  assessmentId: string;
+  status: "pending" | "processing" | "completed" | "failed";
+  totalScore: number;
+  grades: Array<{
+    questionIndex: number;
+    score: number;
+    feedback: string;
+    isCorrect?: boolean;
+  }>;
+  strengths: string[];
+  weaknesses: string[];
+  errorMessage?: string;
+  completedAt?: string;
+};
+
+export type AiSimQualityReport = {
+  reportId: string;
+  assessmentId: string;
+  status: "pending" | "processing" | "completed" | "failed";
+  coverageRate: number;
+  sufficientTopics: string[];
+  insufficientTopics: Array<{ topic: string; reason: string }>;
+  errorMessage?: string;
+  completedAt?: string;
+};
+
+export type AiSimQaPairs = {
+  qaPairId: string;
+  assessmentId: string;
+  status: "pending" | "processing" | "completed" | "failed";
+  qaPairs: Array<{ question: string; answer: string }>;
+  errorMessage?: string;
+  completedAt?: string;
+};
+
+export async function createAiSimContext(
+  courseId: string,
+  payload: { scriptIds: string[]; model?: string },
+): Promise<AiSimContext> {
+  return request(`/api/courses/${courseId}/ai-student/contexts`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function createAiSimSimulation(
+  courseId: string,
+  payload: { contextId: string },
+): Promise<{ simulationId: string; contextId: string; status: string; knowledgeScope: string; createdAt: string }> {
+  return request(`/api/courses/${courseId}/ai-student/simulations`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function createAiSimAssessment(
+  courseId: string,
+  payload: { contextId: string; questionTypes?: string[]; count?: number },
+): Promise<{ assessmentId: string; status: string; message: string }> {
+  return request(`/api/courses/${courseId}/ai-student/assessments`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getAiSimAssessment(
+  courseId: string,
+  assessmentId: string,
+): Promise<AiSimAssessment> {
+  return request(
+    `/api/courses/${courseId}/ai-student/assessments/${assessmentId}`,
+  );
+}
+
+export async function createAiSimAnswers(
+  courseId: string,
+  assessmentId: string,
+  payload: { simulationId: string },
+): Promise<{ answerId: string; status: string; message: string }> {
+  return request(
+    `/api/courses/${courseId}/ai-student/assessments/${assessmentId}/answers`,
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+}
+
+export async function getAiSimAnswers(
+  courseId: string,
+  assessmentId: string,
+): Promise<AiSimAnswers> {
+  return request(
+    `/api/courses/${courseId}/ai-student/assessments/${assessmentId}/answers`,
+  );
+}
+
+export async function createAiSimGrades(
+  courseId: string,
+  assessmentId: string,
+): Promise<{ gradeId: string; status: string; message: string }> {
+  return request(
+    `/api/courses/${courseId}/ai-student/assessments/${assessmentId}/grades`,
+    { method: "POST" },
+  );
+}
+
+export async function getAiSimGrades(
+  courseId: string,
+  assessmentId: string,
+): Promise<AiSimGrades> {
+  return request(
+    `/api/courses/${courseId}/ai-student/assessments/${assessmentId}/grades`,
+  );
+}
+
+export async function createAiSimQualityReport(
+  courseId: string,
+  assessmentId: string,
+): Promise<{ reportId: string; status: string; message: string }> {
+  return request(
+    `/api/courses/${courseId}/ai-student/assessments/${assessmentId}/quality-reports`,
+    { method: "POST" },
+  );
+}
+
+export async function getAiSimQualityReport(
+  courseId: string,
+  assessmentId: string,
+): Promise<AiSimQualityReport> {
+  return request(
+    `/api/courses/${courseId}/ai-student/assessments/${assessmentId}/quality-reports`,
+  );
+}
+
+export async function createAiSimQaPairs(
+  courseId: string,
+  assessmentId: string,
+  payload: { simulationId: string },
+): Promise<{ qaPairId: string; status: string; message: string }> {
+  return request(
+    `/api/courses/${courseId}/ai-student/assessments/${assessmentId}/qa-pairs`,
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+}
+
+export async function getAiSimQaPairs(
+  courseId: string,
+  assessmentId: string,
+): Promise<AiSimQaPairs> {
+  return request(
+    `/api/courses/${courseId}/ai-student/assessments/${assessmentId}/qa-pairs`,
+  );
 }
