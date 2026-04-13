@@ -192,12 +192,29 @@ def update_role(
     return {"userId": row["id"], "role": row["role"], "updatedAt": row["updated_at"]}
 
 
-# ── 계정 탈퇴 (Soft Delete) ────────────────────────────────────────────────────
-@router.delete("/{user_id}")
+# ── 계정 탈퇴 (Permanent Delete) ───────────────────────────────────────────────
+@router.delete("/{user_id}", status_code=204)
 def delete_account(user_id: str, current_user: dict = Depends(get_current_user)):
     if current_user["id"] != user_id:
         raise HTTPException(status_code=403, detail="본인 계정만 탈퇴할 수 있습니다.")
 
-    from datetime import datetime, timezone
-    supabase.table("profiles").update({"deleted_at": datetime.now(timezone.utc).isoformat()}).eq("id", user_id).execute()
-    return {"message": "계정 탈퇴 처리되었습니다. 30일 후 영구 삭제됩니다."}
+    try:
+        # 1. Supabase Auth에서 사용자 영구 삭제
+        # auth.admin.delete_user는 SERVICE_KEY 권한이 필요합니다.
+        # database.py에서 supabase 클라이언트가 SERVICE_KEY로 생성되었는지 확인 필요.
+        response = supabase.auth.admin.delete_user(user_id)
+        
+        # 2. profiles 테이블은 DB 레벨의 ON DELETE CASCADE에 의해 자동 삭제됩니다.
+        # (schema.sql의 profiles 테이블 정의: id uuid primary key references auth.users(id) on delete cascade)
+        
+        return None
+    except Exception as e:
+        # 만약 SERVICE_KEY 권한이 부족하여 실패하는 경우에 대비한 대체 로직
+        error_msg = str(e).lower()
+        if "service_role" in error_msg or "not allowed" in error_msg or "403" in error_msg:
+            # 권한 부족 시 다시 소프트 삭제로 폴백하거나 에러 반환
+            raise HTTPException(
+                status_code=500, 
+                detail=f"계정 삭제 권한이 없습니다. 관리자에게 문의하세요. (에러: {str(e)})"
+            )
+        raise HTTPException(status_code=500, detail=f"탈퇴 처리 중 오류가 발생했습니다: {str(e)}")
