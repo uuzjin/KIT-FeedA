@@ -352,7 +352,7 @@ export function TeacherMaterials() {
         ...s,
         title,
         scheduleId: scheduleId === "none" ? null : scheduleId,
-        weekNumber: selectedSchedule?.weekNumber
+        weekNumber: selectedSchedule?.weekNumber ?? null
       } : s));
       setEditModal(prev => ({ ...prev, open: false }));
       alert("수정되었습니다.");
