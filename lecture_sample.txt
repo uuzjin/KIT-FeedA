@@ -1,0 +1,18 @@
+운영체제 CPU 스케줄링 강의안
+
+1. 개요
+CPU 스케줄링은 여러 프로세스가 CPU를 효율적으로 사용할 수 있도록 관리하는 운영체제의 핵심 기능입니다.
+
+2. 스케줄링 알고리즘 종류
+- FCFS (First-Come, First-Served): 먼저 온 프로세스를 먼저 처리하는 비선점형 방식입니다. 단점으로는 Convoy Effect가 발생할 수 있습니다.
+- SJF (Shortest Job First): 실행 시간이 가장 짧은 프로세스를 우선 처리합니다. 평균 대기 시간을 최소화하지만, 기아 현상(Starvation)이 발생할 수 있습니다.
+- Round Robin (RR): 각 프로세스에 동일한 시간 할당량(Time Quantum)을 부여하는 선점형 방식입니다. 응답 시간이 빠르다는 장점이 있습니다.
+
+3. 주요 용어 정리
+- 선점형(Preemptive): OS가 강제로 CPU를 뺏을 수 있는 방식
+- 비선점형(Non-preemptive): 프로세스가 스스로 CPU를 반납할 때까지 기다리는 방식
+- Convoy Effect: 실행 시간이 긴 프로세스가 CPU를 점유하여 뒤의 짧은 프로세스들이 오래 기다리는 현상
+- Starvation: 특정 프로세스가 우선순위에 밀려 영원히 CPU를 할당받지 못하는 상태
+
+4. 결론
+강의 후반부에는 리눅스 스케줄러인 CFS(Completely Fair Scheduler)에 대해 다룰 예정입니다.

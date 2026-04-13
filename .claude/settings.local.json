@@ -53,7 +53,12 @@
       "Bash(ls pyproject.toml)",
       "Bash(pip install:*)",
       "Read(//mnt/**)",
-      "Read(//c//**)"
+      "Read(//c//**)",
+      "Bash(wc -l /c/KIT-FeedA/frontend/components/**/*.tsx /c/KIT-FeedA/frontend/app/**/*.tsx)",
+      "Bash(gh issue:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(echo \"exit:$?\")"
     ]
   }
 }

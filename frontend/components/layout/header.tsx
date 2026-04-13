@@ -331,9 +331,15 @@ export function Header() {
               </Link>
             </DropdownMenuItem>
             <DropdownMenuItem className="cursor-pointer rounded-lg p-3" asChild>
+              <Link href="/settings/notifications">
+                <Bell className="mr-3 size-4 text-muted-foreground" />
+                {"알림 설정"}
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem className="cursor-pointer rounded-lg p-3" asChild>
               <Link href="/settings/reminders">
                 <Settings className="mr-3 size-4 text-muted-foreground" />
-                {"알림 설정"}
+                {"마감 리마인더 설정"}
               </Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />

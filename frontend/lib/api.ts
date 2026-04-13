@@ -849,6 +849,20 @@ export async function getInstructorUploadStatus(courseId?: string): Promise<{
   );
 }
 
+export async function refreshDashboard(courseId: string): Promise<{
+  message: string;
+  courseId: string;
+  refreshedAt: string;
+  totalWeeks: number;
+  uploadedWeeks: number;
+  averageAccuracy: number;
+}> {
+  return request(`/api/dashboard/refresh/${courseId}`, {
+    method: "POST",
+    requiresAuth: true,
+  });
+}
+
 // Quiz Types
 export type Question = {
   questionId: string;
@@ -1016,19 +1030,52 @@ export type CourseScriptListItem = {
 };
 
 // Script Types
+export type ScriptAnalysisItem = {
+  id: string;
+  analysisType: "logic" | "terminology" | "prerequisites";
+  status: "pending" | "processing" | "completed" | "failed";
+  result: {
+    // logic
+    gaps?: Array<{ location: string; issue: string; severity: "HIGH" | "MEDIUM" | "LOW" }>;
+    overallFlowScore?: number;
+    // terminology
+    undefined_terms?: Array<{ term: string; location: string; recommended_definition: string }>;
+    // prerequisites
+    missing_prerequisites?: Array<{ concept: string; why_needed: string; suggested_coverage: string }>;
+  } | null;
+  errorMessage?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+};
+
+export type ScriptSuggestionItem = {
+  id: string;
+  suggestionType: "difficulty" | "supplements";
+  status: "pending" | "processing" | "completed" | "failed";
+  result: {
+    difficulty_explanations?: Array<{ topic: string; why_difficult: string; student_level: string }>;
+    improvement_suggestions?: Array<{ target: string; suggestion: string; example?: string }>;
+  } | null;
+  errorMessage?: string | null;
+};
+
+export type ScriptReportSlide = {
+  section: string;
+  issues: string[];
+  suggestions: string[];
+  score: number;
+};
+
 export type ScriptAnalysis = {
   scriptId: string;
-  fileName: string;
-  status: "processing" | "completed" | "failed";
-  logicalGaps: Array<{
-    location: string;
-    description: string;
-    severity: "low" | "medium" | "high";
-  }>;
-  missingTerms: string[];
-  missingPrerequisites: string[];
-  suggestions: string[];
-  createdAt: string;
+  analyses: ScriptAnalysisItem[];
+  suggestions: ScriptSuggestionItem[];
+  report: {
+    overall_score: number;
+    summary: string;
+    slides: ScriptReportSlide[];
+    generated_at?: string;
+  } | null;
 };
 
 export type UploadScriptResponse = {
@@ -1299,13 +1346,25 @@ export type Notification = {
   createdAt: string;
 };
 
-export type NotificationPreferences = {
-  userId: string;
-  channels: string[];
-  quizNotifications: boolean;
-  materialNotifications: boolean;
-  deadlineNotifications: boolean;
-  deadlineHoursBefore: number;
+export type NotificationChannel = {
+  type: "EMAIL" | "PUSH" | "IN_APP" | "KAKAO";
+  enabled: boolean;
+  verifiedAt?: string | null;
+};
+
+export type NotificationChannelsResponse = {
+  channels: NotificationChannel[];
+  updatedAt?: string | null;
+};
+
+export type NotificationPreferenceItem = {
+  type: "QUIZ" | "MATERIAL" | "DEADLINE";
+  enabled: boolean;
+};
+
+export type NotificationPreferencesResponse = {
+  preferences: NotificationPreferenceItem[];
+  updatedAt?: string | null;
 };
 
 // Notifications APIs
@@ -1331,19 +1390,35 @@ export async function markNotificationAsRead(
   });
 }
 
+export async function getNotificationChannels(
+  userId: string,
+): Promise<NotificationChannelsResponse> {
+  return request(`/api/users/${userId}/notifications/channels`);
+}
+
+export async function updateNotificationChannels(
+  userId: string,
+  channels: Array<{ type: string; enabled: boolean }>,
+): Promise<NotificationChannelsResponse> {
+  return request(`/api/users/${userId}/notifications/channels`, {
+    method: "PUT",
+    body: JSON.stringify({ channels }),
+  });
+}
+
 export async function getNotificationPreferences(
   userId: string,
-): Promise<NotificationPreferences> {
-  return request(`/api/users/${userId}/notification-preferences`);
+): Promise<NotificationPreferencesResponse> {
+  return request(`/api/users/${userId}/notifications/preferences`);
 }
 
 export async function updateNotificationPreferences(
   userId: string,
-  payload: Partial<NotificationPreferences>,
-): Promise<NotificationPreferences> {
-  return request(`/api/users/${userId}/notification-preferences`, {
+  preferences: Array<{ type: string; enabled: boolean }>,
+): Promise<NotificationPreferencesResponse> {
+  return request(`/api/users/${userId}/notifications/preferences`, {
     method: "PUT",
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ preferences }),
   });
 }
 
@@ -1359,6 +1434,29 @@ export type Reminder = {
   status: "pending" | "sent" | "dismissed";
   createdAt: string;
 };
+
+// Reminder Settings Types & APIs
+export type ReminderSettings = {
+  channels: string[];
+  hoursBefore: number[];
+  quizNotifications: boolean;
+  materialNotifications: boolean;
+  updatedAt?: string | null;
+};
+
+export async function getReminderSettings(userId: string): Promise<ReminderSettings> {
+  return request(`/api/users/${userId}/reminder-settings`);
+}
+
+export async function updateReminderSettings(
+  userId: string,
+  payload: Partial<Omit<ReminderSettings, "updatedAt">>,
+): Promise<ReminderSettings> {
+  return request(`/api/users/${userId}/reminder-settings`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
 
 // Reminders APIs
 export async function getReminders(userId: string): Promise<{

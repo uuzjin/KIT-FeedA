@@ -17,6 +17,9 @@ import {
   Mic,
   AlertTriangle,
   Settings2,
+  BarChart2,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -48,6 +51,8 @@ import {
   getPreviewGuide,
   getReviewSummary,
   getCourseScripts,
+  getScriptAnalysis,
+  type ScriptAnalysis,
   uploadScript,
   updateScript,
   uploadAudio,
@@ -131,7 +136,7 @@ export function TeacherMaterials() {
   const [isStartingConvert, setIsStartingConvert] = useState(false);
   const [isUploadingScript, setIsUploadingScript] = useState(false);
 
-  // 수업 후 분석 상태
+  // 수업 후 분석 상태 (6.6.x - structure/concepts)
   const [postAnalysisSheet, setPostAnalysisSheet] = useState<{
     open: boolean;
     scriptId: string | null;
@@ -140,6 +145,15 @@ export function TeacherMaterials() {
     loading: boolean;
     triggering: string | null;
   }>({ open: false, scriptId: null, scriptTitle: "", analyses: [], loading: false, triggering: null });
+
+  // 사전 분석 리포트 상태 (4.2/4.3 - logic/terminology/prerequisites + suggestions + report)
+  const [scriptReportSheet, setScriptReportSheet] = useState<{
+    open: boolean;
+    scriptId: string | null;
+    scriptTitle: string;
+    data: ScriptAnalysis | null;
+    loading: boolean;
+  }>({ open: false, scriptId: null, scriptTitle: "", data: null, loading: false });
   
   const scriptInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
@@ -372,6 +386,17 @@ export function TeacherMaterials() {
     }
   };
 
+  const handleOpenScriptReport = async (scriptId: string, scriptTitle: string) => {
+    if (!courseId) return;
+    setScriptReportSheet({ open: true, scriptId, scriptTitle, data: null, loading: true });
+    try {
+      const data = await getScriptAnalysis(courseId, scriptId);
+      setScriptReportSheet(prev => ({ ...prev, data, loading: false }));
+    } catch {
+      setScriptReportSheet(prev => ({ ...prev, loading: false }));
+    }
+  };
+
   const handleOpenTranscript = async (audio: AudioItem) => {
     setTranscriptSheet({ open: true, audioId: audio.audioId, fileName: audio.fileName, transcript: null, loading: true });
     try {
@@ -530,10 +555,13 @@ export function TeacherMaterials() {
                     </DropdownMenu>
                   </div>
                   {s.status === "completed" && (
-                    <div className="mt-2 flex gap-2 justify-end">
+                    <div className="mt-2 flex flex-wrap gap-2 justify-end">
                       <Button size="sm" variant="outline" onClick={() => handleGeneratePreview(s.scheduleId)} disabled={!s.scheduleId}>예습 생성</Button>
                       <Button size="sm" variant="outline" onClick={() => handleGenerateReview(s.scheduleId)} disabled={!s.scheduleId}>복습 생성</Button>
-                      <Button size="sm" onClick={() => handleOpenPostAnalysis(s.id, s.title)}>분석 보기</Button>
+                      <Button size="sm" variant="outline" onClick={() => handleOpenScriptReport(s.id, s.title)}>
+                        <BarChart2 className="mr-1 size-3.5" />분석 리포트
+                      </Button>
+                      <Button size="sm" onClick={() => handleOpenPostAnalysis(s.id, s.title)}>수업 후 분析</Button>
                     </div>
                   )}
                 </div>
@@ -613,6 +641,237 @@ export function TeacherMaterials() {
           )}
         </SheetContent>
       </Sheet>
+
+      {/* 사전 분析 리포트 Sheet (4.2/4.3) */}
+      <Sheet open={scriptReportSheet.open} onOpenChange={o => setScriptReportSheet(prev => ({ ...prev, open: o }))}>
+        <SheetContent side="bottom" className="h-[92vh] overflow-y-auto">
+          <SheetHeader className="mb-4">
+            <SheetTitle className="flex items-center gap-2">
+              <BarChart2 className="size-5 text-primary" />
+              스크립트 분析 리포트
+            </SheetTitle>
+            <p className="text-sm text-muted-foreground truncate">{scriptReportSheet.scriptTitle}</p>
+          </SheetHeader>
+          {scriptReportSheet.loading ? (
+            <div className="flex justify-center py-16"><Loader2 className="animate-spin size-8 text-primary" /></div>
+          ) : !scriptReportSheet.data ? (
+            <div className="py-8 text-center text-muted-foreground text-sm">분析 결과를 불러올 수 없습니다.</div>
+          ) : (
+            <ScriptReportViewer data={scriptReportSheet.data} />
+          )}
+        </SheetContent>
+      </Sheet>
+    </div>
+  );
+}
+
+function ScriptReportViewer({ data }: { data: ScriptAnalysis }) {
+  const [expandedSlide, setExpandedSlide] = useState<number | null>(null);
+
+  const logicItem = data.analyses.find(a => a.analysisType === "logic");
+  const termItem = data.analyses.find(a => a.analysisType === "terminology");
+  const prereqItem = data.analyses.find(a => a.analysisType === "prerequisites");
+  const diffItem = data.suggestions.find(s => s.suggestionType === "difficulty");
+
+  const scoreColor = (score: number) =>
+    score >= 80 ? "text-emerald-600" : score >= 60 ? "text-amber-500" : "text-red-500";
+
+  return (
+    <div className="flex flex-col gap-5 pb-8">
+      {/* 종합 점수 */}
+      {data.report && (
+        <Card className="p-4 border-primary/20 bg-primary/5">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-semibold">종합 점수</h3>
+            <span className={`text-2xl font-bold ${scoreColor(data.report.overall_score)}`}>
+              {data.report.overall_score}점
+            </span>
+          </div>
+          {data.report.summary && (
+            <p className="text-sm text-muted-foreground leading-relaxed">{data.report.summary}</p>
+          )}
+          <Progress value={data.report.overall_score} className="mt-3 h-2" />
+        </Card>
+      )}
+
+      {/* 논리 흐름 분析 */}
+      {logicItem?.status === "completed" && logicItem.result && (
+        <Card className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="font-medium flex items-center gap-2">
+              <span className="size-2 rounded-full bg-blue-500 inline-block" />
+              논리 흐름 분析
+            </h4>
+            {logicItem.result.overallFlowScore != null && (
+              <Badge variant="outline" className={scoreColor(logicItem.result.overallFlowScore)}>
+                흐름 점수 {logicItem.result.overallFlowScore}
+              </Badge>
+            )}
+          </div>
+          {logicItem.result.gaps && logicItem.result.gaps.length > 0 ? (
+            <div className="flex flex-col gap-2">
+              {logicItem.result.gaps.map((gap, i) => (
+                <div key={i} className="rounded-lg border border-border/60 p-3 text-sm">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Badge variant={gap.severity === "HIGH" ? "destructive" : gap.severity === "MEDIUM" ? "secondary" : "outline"} className="text-xs">
+                      {gap.severity === "HIGH" ? "심각" : gap.severity === "MEDIUM" ? "보통" : "낮음"}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">{gap.location}</span>
+                  </div>
+                  <p className="text-muted-foreground">{gap.issue}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-emerald-600">논리 흐름 문제가 감지되지 않았습니다. ✓</p>
+          )}
+        </Card>
+      )}
+
+      {/* 전문용어 미설명 */}
+      {termItem?.status === "completed" && termItem.result && (
+        <Card className="p-4">
+          <h4 className="font-medium flex items-center gap-2 mb-3">
+            <span className="size-2 rounded-full bg-amber-500 inline-block" />
+            전문용어 미설명 탐지
+            {termItem.result.undefined_terms && (
+              <Badge variant="secondary" className="text-xs ml-auto">{termItem.result.undefined_terms.length}건</Badge>
+            )}
+          </h4>
+          {termItem.result.undefined_terms && termItem.result.undefined_terms.length > 0 ? (
+            <div className="flex flex-col gap-2">
+              {termItem.result.undefined_terms.map((t, i) => (
+                <div key={i} className="rounded-lg bg-amber-500/10 p-3 text-sm">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-semibold text-amber-700">{t.term}</span>
+                    <span className="text-xs text-muted-foreground">{t.location}</span>
+                  </div>
+                  <p className="text-muted-foreground text-xs">권장 정의: {t.recommended_definition}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-emerald-600">미설명 전문용어가 없습니다. ✓</p>
+          )}
+        </Card>
+      )}
+
+      {/* 전제지식 누락 */}
+      {prereqItem?.status === "completed" && prereqItem.result && (
+        <Card className="p-4">
+          <h4 className="font-medium flex items-center gap-2 mb-3">
+            <span className="size-2 rounded-full bg-orange-500 inline-block" />
+            전제지식 누락 탐지
+            {prereqItem.result.missing_prerequisites && (
+              <Badge variant="secondary" className="text-xs ml-auto">{prereqItem.result.missing_prerequisites.length}건</Badge>
+            )}
+          </h4>
+          {prereqItem.result.missing_prerequisites && prereqItem.result.missing_prerequisites.length > 0 ? (
+            <div className="flex flex-col gap-2">
+              {prereqItem.result.missing_prerequisites.map((p, i) => (
+                <div key={i} className="rounded-lg border border-border/60 p-3 text-sm">
+                  <p className="font-medium mb-1">{p.concept}</p>
+                  <p className="text-xs text-muted-foreground mb-1">필요 이유: {p.why_needed}</p>
+                  <p className="text-xs text-blue-600">제안: {p.suggested_coverage}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-emerald-600">전제지식 누락이 없습니다. ✓</p>
+          )}
+        </Card>
+      )}
+
+      {/* 학습자 난이도 분析 & 개선 제안 */}
+      {diffItem?.status === "completed" && diffItem.result && (
+        <Card className="p-4">
+          <h4 className="font-medium flex items-center gap-2 mb-3">
+            <span className="size-2 rounded-full bg-purple-500 inline-block" />
+            학습자 관점 난이도 분析
+          </h4>
+          {diffItem.result.difficulty_explanations && diffItem.result.difficulty_explanations.length > 0 && (
+            <div className="flex flex-col gap-2 mb-4">
+              {diffItem.result.difficulty_explanations.map((d, i) => (
+                <div key={i} className="rounded-lg bg-purple-500/10 p-3 text-sm">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-medium">{d.topic}</span>
+                    <Badge variant="outline" className="text-xs">{d.student_level}</Badge>
+                  </div>
+                  <p className="text-muted-foreground text-xs">{d.why_difficult}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          {diffItem.result.improvement_suggestions && diffItem.result.improvement_suggestions.length > 0 && (
+            <>
+              <h5 className="text-sm font-medium mb-2 text-muted-foreground">개선 제안</h5>
+              <div className="flex flex-col gap-2">
+                {diffItem.result.improvement_suggestions.map((s, i) => (
+                  <div key={i} className="rounded-lg border border-border/60 p-3 text-sm">
+                    <p className="font-medium text-xs text-muted-foreground mb-1">대상: {s.target}</p>
+                    <p className="mb-1">{s.suggestion}</p>
+                    {s.example && <p className="text-xs text-blue-600 italic">예시: {s.example}</p>}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </Card>
+      )}
+
+      {/* 슬라이드별 리포트 */}
+      {data.report?.slides && data.report.slides.length > 0 && (
+        <Card className="p-4">
+          <h4 className="font-medium mb-3 flex items-center gap-2">
+            <span className="size-2 rounded-full bg-indigo-500 inline-block" />
+            섹션별 분析 리포트
+          </h4>
+          <div className="flex flex-col gap-2">
+            {data.report.slides.map((slide, i) => (
+              <div key={i} className="rounded-lg border border-border/60 overflow-hidden">
+                <button
+                  className="w-full flex items-center justify-between p-3 text-left hover:bg-muted/50 transition-colors"
+                  onClick={() => setExpandedSlide(expandedSlide === i ? null : i)}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className={`text-sm font-semibold ${scoreColor(slide.score)}`}>{slide.score}점</span>
+                    <span className="text-sm truncate">{slide.section}</span>
+                  </div>
+                  {expandedSlide === i ? <ChevronUp className="size-4 shrink-0 text-muted-foreground" /> : <ChevronDown className="size-4 shrink-0 text-muted-foreground" />}
+                </button>
+                {expandedSlide === i && (
+                  <div className="px-3 pb-3 border-t border-border/40 pt-2 text-sm space-y-3">
+                    {slide.issues.length > 0 && (
+                      <div>
+                        <p className="text-xs font-medium text-red-500 mb-1">문제점</p>
+                        <ul className="space-y-1">
+                          {slide.issues.map((issue, j) => (
+                            <li key={j} className="text-xs text-muted-foreground flex gap-2">
+                              <span className="text-red-400 shrink-0">·</span>{issue}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {slide.suggestions.length > 0 && (
+                      <div>
+                        <p className="text-xs font-medium text-blue-600 mb-1">개선안</p>
+                        <ul className="space-y-1">
+                          {slide.suggestions.map((sug, j) => (
+                            <li key={j} className="text-xs text-muted-foreground flex gap-2">
+                              <span className="text-blue-400 shrink-0">·</span>{sug}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
     </div>
   );
 }
