@@ -88,7 +88,17 @@ export function TeacherMaterials() {
   const courseId = selectedCourse?.courseId;
 
   const [schedules, setSchedules] = useState<SchedulePreview[]>([]);
-  const [scripts, setScripts] = useState<any[]>([]);
+  const [scripts, setScripts] = useState<Array<{
+    id: string;
+    scheduleId: string | null;
+    weekNumber: number | null;
+    title: string;
+    format: string;
+    uploadDate: string;
+    status: string;
+    progress: number;
+    issues: number;
+  }>>([]);
   
   // 모달 상태
   const [uploadModal, setUploadModal] = useState({
