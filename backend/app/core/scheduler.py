@@ -8,6 +8,7 @@
 import logging
 import smtplib
 from datetime import datetime, timedelta, timezone
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 import httpx
@@ -85,6 +86,46 @@ def _send_in_app(user_id: str, title: str, body: str, reminder: dict) -> None:
     }).execute()
 
 
+def _build_email_html(title: str, body: str) -> str:
+    """마감 알림 HTML 이메일 템플릿."""
+    lines = body.replace("\n", "<br>")
+    return f"""<!DOCTYPE html>
+<html lang="ko">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#f4f4f5;font-family:'Apple SD Gothic Neo',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:32px 0;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0"
+             style="background:#ffffff;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.08);overflow:hidden;max-width:560px;width:100%;">
+        <!-- 헤더 -->
+        <tr>
+          <td style="background:#6366f1;padding:24px 32px;">
+            <p style="margin:0;color:#ffffff;font-size:20px;font-weight:700;">FeedA</p>
+            <p style="margin:4px 0 0;color:#c7d2fe;font-size:13px;">강의 지원 플랫폼</p>
+          </td>
+        </tr>
+        <!-- 본문 -->
+        <tr>
+          <td style="padding:32px;">
+            <h2 style="margin:0 0 16px;font-size:18px;color:#1e1b4b;">{title}</h2>
+            <p style="margin:0;font-size:14px;line-height:1.7;color:#374151;">{lines}</p>
+          </td>
+        </tr>
+        <!-- 푸터 -->
+        <tr>
+          <td style="background:#f9fafb;padding:16px 32px;border-top:1px solid #e5e7eb;">
+            <p style="margin:0;font-size:12px;color:#9ca3af;">
+              이 메일은 FeedA 플랫폼에서 자동 발송되었습니다. 수신을 원치 않으시면 알림 설정을 변경해 주세요.
+            </p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>"""
+
+
 def _send_email(user_id: str, title: str, body: str, settings) -> None:
     if not settings.SMTP_HOST:
         logger.debug("SMTP 미설정 — 이메일 발송 스킵 user_id=%s", user_id)
@@ -102,10 +143,16 @@ def _send_email(user_id: str, title: str, body: str, settings) -> None:
     if not profile.data or not profile.data.get("email"):
         return
 
-    msg = MIMEText(body, "plain", "utf-8")
+    recipient = profile.data["email"]
+    sender = settings.SMTP_FROM or settings.SMTP_USER
+
+    msg = MIMEMultipart("alternative")
     msg["Subject"] = f"[FeedA] {title}"
-    msg["From"] = settings.SMTP_FROM or settings.SMTP_USER
-    msg["To"] = profile.data["email"]
+    msg["From"] = sender
+    msg["To"] = recipient
+
+    msg.attach(MIMEText(body, "plain", "utf-8"))
+    msg.attach(MIMEText(_build_email_html(title, body), "html", "utf-8"))
 
     with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
         server.starttls()

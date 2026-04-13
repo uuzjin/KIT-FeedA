@@ -16,6 +16,8 @@ import {
   Send,
   FileText,
   Users,
+  Share2,
+  Loader2,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -27,6 +29,7 @@ import {
   getNotices,
   getNoticeSettings,
   updateNoticeSettings,
+  publishAnnouncement,
   type Announcement,
   type NoticeSettings,
 } from "@/lib/api";
@@ -80,6 +83,8 @@ export function TeacherAnnouncements() {
   const [notices, setNotices] = useState<Announcement[]>([]);
   const [settings, setSettings] = useState<NoticeSettings | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [publishingId, setPublishingId] = useState<string | null>(null);
+  const [publishedIds, setPublishedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!user?.id) return;
@@ -100,6 +105,21 @@ export function TeacherAnnouncements() {
     };
     void load();
   }, [user?.id]);
+
+  const handlePublishToLms = async (courseId: string, announcementId: string) => {
+    setPublishingId(announcementId);
+    setError(null);
+    try {
+      await publishAnnouncement(courseId, announcementId);
+      setPublishedIds((prev) => new Set(prev).add(announcementId));
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "LMS 배포에 실패했습니다.",
+      );
+    } finally {
+      setPublishingId(null);
+    }
+  };
 
   const handleSaveSettings = async () => {
     if (!settings || !user?.id) return;
@@ -266,6 +286,34 @@ export function TeacherAnnouncements() {
                           <Users className="mr-2 size-4" />
                           {"읽은 학생 확인"}
                         </DropdownMenuItem>
+                        {typeof announcement.id === "string" && (
+                          <DropdownMenuItem
+                            disabled={
+                              publishingId === announcement.id ||
+                              publishedIds.has(announcement.id)
+                            }
+                            onClick={() => {
+                              const notice = notices.find(
+                                (n) => n.announcementId === announcement.id,
+                              );
+                              if (notice) {
+                                void handlePublishToLms(
+                                  notice.courseId,
+                                  notice.announcementId,
+                                );
+                              }
+                            }}
+                          >
+                            {publishingId === announcement.id ? (
+                              <Loader2 className="mr-2 size-4 animate-spin" />
+                            ) : (
+                              <Share2 className="mr-2 size-4" />
+                            )}
+                            {publishedIds.has(announcement.id)
+                              ? "LMS 배포 완료"
+                              : "LMS 배포"}
+                          </DropdownMenuItem>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
