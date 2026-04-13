@@ -126,21 +126,44 @@ def get_upload_status(
     if not course_ids:
         return {"uploadStatus": [], "completionRate": 0.0}
 
-    snapshots = (
-        supabase.table("dashboard_snapshots")
-        .select("course_id, uploaded_weeks, total_weeks, weekly_stats")
-        .in_("course_id", course_ids)
-        .execute()
-    )
+    try:
+        snapshots = (
+            supabase.table("dashboard_snapshots")
+            .select("*")
+            .in_("course_id", course_ids)
+            .execute()
+        )
+        data = snapshots.data or []
+    except Exception as e:
+        print(f"Error fetching dashboard_snapshots: {e}")
+        data = []
 
     upload_status = []
     total_uploaded = 0
     total_weeks = 0
 
-    for snap in (snapshots.data or []):
-        total_uploaded += (snap.get("uploaded_weeks") or 0)
-        total_weeks += (snap.get("total_weeks") or 16)
-        for w in (snap.get("weekly_stats") or []):
+    for snap in data:
+        try:
+            total_uploaded += int(snap.get("uploaded_weeks") or 0)
+        except (ValueError, TypeError):
+            pass
+            
+        try:
+            total_weeks += int(snap.get("total_weeks") or 16)
+        except (ValueError, TypeError):
+            total_weeks += 16
+            
+        weekly = snap.get("weekly_stats") or []
+        if isinstance(weekly, str):
+            import json
+            try:
+                weekly = json.loads(weekly)
+            except Exception:
+                weekly = []
+                
+        for w in weekly:
+            if not isinstance(w, dict):
+                continue
             upload_status.append({
                 "weekNumber": w.get("weekNumber"),
                 "topic": w.get("topic"),
@@ -149,7 +172,7 @@ def get_upload_status(
                 "script": w.get("scriptDone", False),
             })
 
-    completion_rate = round(total_uploaded / total_weeks * 100, 1) if total_weeks else 0.0
+    completion_rate = round((total_uploaded / total_weeks) * 100, 1) if total_weeks > 0 else 0.0
     return {"uploadStatus": upload_status, "completionRate": completion_rate}
 
 

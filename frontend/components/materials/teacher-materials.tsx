@@ -31,6 +31,8 @@ import {
   uploadAudio,
   uploadScript,
   getCourseScripts,
+  generatePreviewGuide,
+  generateReviewSummary,
   type AnalysisReport,
 } from "@/lib/api";
 import { supabase } from "@/lib/supabase/client";
@@ -45,6 +47,9 @@ export function TeacherMaterials() {
   const [previewMaterials, setPreviewMaterials] = useState<any[]>([]);
   const [reviewMaterials, setReviewMaterials] = useState<any[]>([]);
   const [scripts, setScripts] = useState<any[]>([]);
+  const [simulatedProgress, setSimulatedProgress] = useState<
+    Record<string, { progress: number; remaining: number }>
+  >({});
 
   const [activeTab, setActiveTab] = useState("preview");
   const [audioTask, setAudioTask] = useState<any | null>(null);
@@ -124,8 +129,8 @@ export function TeacherMaterials() {
             setScripts(
               list.map((s: any) => ({
                 id: s.scriptId || s.id,
-                title:
-                  s.title || s.fileName || s.file_name || "업로드된 스크립트",
+                scheduleId: s.scheduleId || s.schedule_id,
+                title: s.title || s.fileName || s.file_name || "업로드된 자료",
                 format: (
                   (s.fileName || s.file_name || "").split(".").pop() || "문서"
                 ).toUpperCase(),
@@ -179,6 +184,86 @@ export function TeacherMaterials() {
     return () => window.clearInterval(intervalId);
   }, [audioTask, courseId]);
 
+  // ── 스크립트 상태 폴링 (진행 중인 분석이 있을 때만 5초마다 갱신) ──
+  useEffect(() => {
+    const hasAnalyzing = scripts.some((s) => s.status === "analyzing");
+    if (!hasAnalyzing || !courseId) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const scriptData = await getCourseScripts(courseId);
+        const list = scriptData.scripts;
+        if (Array.isArray(list)) {
+          setScripts(
+            list.map((s: any) => ({
+              id: s.scriptId || s.id,
+              scheduleId: s.scheduleId || s.schedule_id,
+              title: s.title || s.fileName || s.file_name || "업로드된 자료",
+              format: (
+                (s.fileName || s.file_name || "").split(".").pop() || "문서"
+              ).toUpperCase(),
+              uploadDate: new Date(
+                s.uploadedAt || s.created_at || Date.now(),
+              ).toLocaleDateString(),
+              status: s.status === "completed" ? "completed" : "analyzing",
+              progress: s.progress || 0,
+              issues: s.issues_count || 0,
+            })),
+          );
+        }
+      } catch (e) {
+        console.error("스크립트 폴링 실패:", e);
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [scripts, courseId]);
+
+  // ── 남은 시간 시뮬레이션 및 퍼센트 게이지 애니메이션 ──
+  useEffect(() => {
+    const hasAnalyzing = scripts.some((s) => s.status === "analyzing");
+    if (!hasAnalyzing) return;
+
+    const interval = setInterval(() => {
+      setSimulatedProgress((prev) => {
+        const next = { ...prev };
+        scripts
+          .filter((s) => s.status === "analyzing")
+          .forEach((s) => {
+            const current = next[s.id] || { progress: 0, remaining: 45 };
+            next[s.id] = {
+              progress: Math.min(
+                99,
+                current.progress + Math.floor(Math.random() * 3) + 1,
+              ), // 1~3% 랜덤 상승 (최대 99%)
+              remaining: Math.max(1, current.remaining - 1), // 1초씩 감소
+            };
+          });
+        return next;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [scripts]);
+
+  const handleGeneratePreview = async (scheduleId: string | null) => {
+    if (!courseId) return;
+    try {
+      await generatePreviewGuide(courseId, scheduleId || "default");
+      alert("예습 자료 생성 요청이 성공적으로 전송되었습니다.");
+    } catch (e) {
+      alert("예습 자료 생성 중 오류가 발생했습니다.");
+    }
+  };
+
+  const handleGenerateReview = async (scheduleId: string | null) => {
+    if (!courseId) return;
+    try {
+      await generateReviewSummary(courseId, scheduleId || "default");
+      alert("복습 자료 생성 요청이 성공적으로 전송되었습니다.");
+    } catch (e) {
+      alert("복습 자료 생성 중 오류가 발생했습니다.");
+    }
+  };
+
   const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -213,13 +298,29 @@ export function TeacherMaterials() {
     setIsUploadingScript(true);
 
     try {
-      await uploadScript(courseId as string, { file, title: file.name });
+      const res = await uploadScript(courseId as string, {
+        file,
+        title: file.name,
+      });
 
-      alert("스크립트가 성공적으로 업로드되어 AI 분석이 시작되었습니다!");
+      // 방금 업로드한 스크립트를 목록 최상단에 즉시 추가하여 애니메이션을 바로 시작시킵니다.
+      const newScript = {
+        id: res.scriptId,
+        scheduleId: null,
+        title: file.name,
+        format: (file.name.split(".").pop() || "문서").toUpperCase(),
+        uploadDate: new Date().toLocaleDateString(),
+        status: "analyzing",
+        progress: 0,
+        issues: 0,
+      };
+      setScripts((prev) => [newScript, ...prev]);
+
+      alert("강의 자료가 성공적으로 업로드되어 AI 분석이 시작되었습니다!");
       setActiveTab("scripts");
     } catch (error) {
       console.error(error);
-      alert("스크립트 업로드 중 오류가 발생했습니다.");
+      alert("강의 자료 업로드 중 오류가 발생했습니다.");
     } finally {
       setIsUploadingScript(false);
       if (e.target) e.target.value = ""; // input 초기화
@@ -230,44 +331,6 @@ export function TeacherMaterials() {
     <div className="flex flex-col gap-5 p-4 pb-24">
       <CourseInfoBanner />
 
-      {/* 페이지 헤더 */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-foreground">{"강의 자료"}</h1>
-          <p className="text-sm text-muted-foreground">
-            {"자료 업로드 및 AI 분석"}
-          </p>
-        </div>
-        <Button className="gap-2">
-          <Upload className="size-4" />
-          {"업로드"}
-        </Button>
-      </div>
-
-      {/* 강의 선택 */}
-      {courses.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {courses.map((c) => (
-            <button
-              key={c.courseId}
-              onClick={() => setSelectedCourse(c)}
-              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                courseId === c.courseId
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-border bg-muted text-muted-foreground hover:border-primary/50"
-              }`}
-            >
-              {c.courseName}
-            </button>
-          ))}
-        </div>
-      )}
-      {!courseId && courses.length === 0 && (
-        <p className="text-sm text-muted-foreground">
-          {"담당 강의가 없습니다. 먼저 강의를 생성해 주세요."}
-        </p>
-      )}
-
       {/* AI 분석 카드 */}
       <Card className="border-primary/20 bg-linear-to-br from-primary/5 to-primary/10">
         <CardContent className="p-4">
@@ -277,11 +340,11 @@ export function TeacherMaterials() {
             </div>
             <div className="flex-1">
               <h3 className="font-semibold text-foreground">
-                {"AI 스크립트 분석"}
+                {"AI 강의 자료 분석"}
               </h3>
               <p className="text-sm text-muted-foreground">
                 {
-                  "강의 스크립트를 업로드하면 AI가 구조적 허점을 분석하고 보완점을 제안합니다."
+                  "강의 자료를 업로드하면 AI가 구조적 허점을 분석하고 보완점을 제안합니다."
                 }
               </p>
             </div>
@@ -311,7 +374,7 @@ export function TeacherMaterials() {
               disabled={isUploadingScript}
             >
               <FileUp className="size-4" />
-              {isUploadingScript ? "업로드 중..." : "스크립트 업로드"}
+              {isUploadingScript ? "업로드 중..." : "강의 자료 업로드"}
             </Button>
             <Button
               size="sm"
@@ -350,7 +413,7 @@ export function TeacherMaterials() {
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="preview">{"예습 자료"}</TabsTrigger>
           <TabsTrigger value="review">{"복습 자료"}</TabsTrigger>
-          <TabsTrigger value="scripts">{"스크립트"}</TabsTrigger>
+          <TabsTrigger value="scripts">{"강의 자료"}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="preview" className="mt-4">
@@ -544,11 +607,17 @@ export function TeacherMaterials() {
                         {script.status === "analyzing" && (
                           <div className="mt-2 flex items-center gap-2">
                             <Progress
-                              value={script.progress}
+                              value={
+                                simulatedProgress[script.id]?.progress || 0
+                              }
                               className="h-1.5 flex-1"
                             />
-                            <span className="text-xs text-muted-foreground">
-                              {script.progress}%
+                            <span className="w-10 text-right text-xs font-medium text-primary">
+                              {simulatedProgress[script.id]?.progress || 0}%
+                            </span>
+                            <span className="w-14 text-right text-xs text-muted-foreground tabular-nums">
+                              {simulatedProgress[script.id]?.remaining || 45}초
+                              남음
                             </span>
                           </div>
                         )}
@@ -566,9 +635,35 @@ export function TeacherMaterials() {
                       </div>
                     </div>
                     {script.status === "completed" && (
-                      <Button size="sm" variant="outline">
-                        {"리포트 보기"}
-                      </Button>
+                      <div className="mt-3 flex flex-col items-end gap-2 sm:mt-0 sm:flex-row">
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              handleGeneratePreview(script.scheduleId)
+                            }
+                          >
+                            {"예습 자료 생성"}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              handleGenerateReview(script.scheduleId)
+                            }
+                          >
+                            {"복습 자료 생성"}
+                          </Button>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="default"
+                          className="w-full sm:w-auto"
+                        >
+                          {"리포트 보기"}
+                        </Button>
+                      </div>
                     )}
                   </div>
                 </CardContent>
