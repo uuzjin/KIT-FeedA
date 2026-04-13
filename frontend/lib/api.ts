@@ -1,8 +1,48 @@
 import { supabase } from "@/lib/supabase/client";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ??
-  "https://backend-production-9c858.up.railway.app";
+const FALLBACK_API_BASE_URL = "https://backend-production-9c858.up.railway.app";
+
+function isLocalAddress(hostname: string) {
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "0.0.0.0"
+  );
+}
+
+function normalizeBaseUrl(url: string) {
+  return url.trim().replace(/\/+$/, "");
+}
+
+export function resolveApiBaseUrl() {
+  const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
+  if (!configured) {
+    return FALLBACK_API_BASE_URL;
+  }
+
+  try {
+    const parsed = new URL(configured);
+    if (typeof window !== "undefined") {
+      const currentHost = window.location.hostname;
+      const currentProtocol = window.location.protocol;
+      const runningInProductionLikeHost = !isLocalAddress(currentHost);
+      const configuredIsLocal = isLocalAddress(parsed.hostname);
+      const mixedContent =
+        currentProtocol === "https:" && parsed.protocol === "http:";
+
+      if (runningInProductionLikeHost && (configuredIsLocal || mixedContent)) {
+        return FALLBACK_API_BASE_URL;
+      }
+    }
+    return normalizeBaseUrl(parsed.toString());
+  } catch {
+    return FALLBACK_API_BASE_URL;
+  }
+}
+
+type RequestOptions = RequestInit & {
+  requiresAuth?: boolean;
+};
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
   const headers: Record<string, string> = {
@@ -24,17 +64,19 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
   return headers;
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: RequestOptions): Promise<T> {
+  const { requiresAuth = true, ...fetchInit } = init ?? {};
   const authHeaders = await getAuthHeaders();
+  const requestUrl = `${resolveApiBaseUrl()}${path}`;
 
   // Safely merge headers
   const mergedHeaders: Record<string, string> = {
     ...authHeaders,
-    ...(init?.headers as Record<string, string>),
+    ...(fetchInit.headers as Record<string, string>),
   };
 
-  if (init?.headers && typeof init.headers === "object") {
-    const headerObj = init.headers as Record<string, string>;
+  if (fetchInit.headers && typeof fetchInit.headers === "object") {
+    const headerObj = fetchInit.headers as Record<string, string>;
     Object.keys(headerObj).forEach((key) => {
       if (typeof headerObj[key] === "string") {
         mergedHeaders[key] = headerObj[key];
@@ -43,16 +85,22 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   // [디버깅] 프론트엔드 내부적으로는 토큰이 제대로 담겼는지 개발자 도구 콘솔에 출력
-  if (!mergedHeaders.Authorization) {
-    console.error("❌ [API Error] 인증 토큰이 없습니다. 다시 로그인 해주세요.");
-    throw new Error("인증 토큰이 없습니다. 다시 로그인 해주세요.");
+  if (requiresAuth && !mergedHeaders.Authorization) {
+    throw new Error("인증 토큰이 없습니다. 다시 로그인해주세요.");
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers: mergedHeaders,
-    credentials: "include", // 쿠키 기반 인증 및 세션 유지를 위해 추가
-  });
+  let response: Response;
+  try {
+    response = await fetch(requestUrl, {
+      ...fetchInit,
+      headers: mergedHeaders,
+      credentials: "include",
+    });
+  } catch {
+    throw new Error(
+      `API 서버에 연결할 수 없습니다. 요청 주소를 확인해주세요. (${requestUrl})`,
+    );
+  }
 
   if (!response.ok) {
     let backendMessage = `HTTP error! status: ${response.status}`;
@@ -80,11 +128,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       console.error(
         `❌ [API Error] 401 Unauthorized - 백엔드 응답: ${backendMessage}`,
       );
-      if (typeof window !== "undefined") {
-        // 잘못된/만료된 세션을 로컬에서 완전히 지워버림 (무한 로그인 루프 방지)
-        // await supabase.auth.signOut().catch(() => {});
-        // window.location.href = "/login";
-      }
     }
     throw new Error(backendMessage);
   }
@@ -139,36 +182,6 @@ export type NoticeSettings = {
   channels: string[];
   deadline_hours_before: number;
   quiz_notifications: boolean;
-};
-
-export type QuizLatest = {
-  title: string;
-  questions: number;
-  anonymous_enabled: boolean;
-  accuracy: number;
-  hard_questions: string[];
-};
-
-export type QuizGeneratePayload = {
-  topic: string;
-  difficulty: string;
-  question_count: number;
-};
-
-export type AudioConvertTask = {
-  task_id: string;
-  file_name: string;
-  status: "processing" | "completed";
-  progress: number;
-  transcript_preview: string | null;
-};
-
-export type AnalysisReport = {
-  source_file: string;
-  logical_gaps: number;
-  missing_terms: string[];
-  missing_prerequisites: string[];
-  suggestions: string[];
 };
 
 // Course types
@@ -248,11 +261,8 @@ export type StudentMaterialItem = {
   createdAt: string;
 };
 
-// login() removed — authentication is handled by Supabase SDK in auth-context.tsx
-
 export async function getNotices(courseId?: string) {
   if (!courseId) {
-    // 사용자의 모든 강의 조회 후 공지 병합
     try {
       const coursesResponse = await request<{ courses: Course[] }>(
         "/api/courses",
@@ -273,7 +283,6 @@ export async function getNotices(courseId?: string) {
 
       return allAnnouncements;
     } catch {
-      // 강의 조회 실패 시 빈 배열 반환
       return [];
     }
   }
@@ -451,14 +460,13 @@ export async function addCourseStudents(
   notFoundEmails?: string[];
   errors: Array<{ row: number; reason: string }>;
 }> {
-  // File upload path — Excel/CSV → POST /enrollments/upload
   if (payload.file) {
     const formData = new FormData();
     formData.append("file", payload.file);
 
     const authHeaders = await getAuthHeaders();
     const res = await fetch(
-      `${API_BASE_URL}/api/courses/${courseId}/enrollments/upload`,
+      `${resolveApiBaseUrl()}/api/courses/${courseId}/enrollments/upload`,
       {
         method: "POST",
         headers: {
@@ -488,7 +496,6 @@ export async function addCourseStudents(
     };
   }
 
-  // ID list path — POST /enrollments with JSON
   if (!payload.studentIds?.length) {
     throw new Error("추가할 학생 ID가 없습니다.");
   }
@@ -532,9 +539,12 @@ export type CourseInvitePreview = {
   isExpired: boolean;
 };
 
-export async function getInvitePreview(token: string): Promise<CourseInvitePreview> {
+export async function getInvitePreview(
+  token: string,
+): Promise<CourseInvitePreview> {
   return request<CourseInvitePreview>(`/api/courses/invites/${token}`, {
     method: "GET",
+    requiresAuth: false,
   });
 }
 
@@ -590,35 +600,21 @@ export async function syncLmsStudents(
   });
 }
 
-// Notification settings — scoped to userId
-// Merges /api/users/{userId}/notifications/channels + preferences
-export async function getNoticeSettings(userId: string): Promise<NoticeSettings> {
-  const [channelsRes, prefsRes] = await Promise.all([
-    request<{ channels: string[] }>(`/api/users/${userId}/notifications/channels`),
-    request<{ preferences: Array<{ notificationType: string; enabled: boolean }> }>(
-      `/api/users/${userId}/notifications/preferences`,
-    ),
-  ]);
-  const quizPref = prefsRes.preferences?.find((p) => p.notificationType === "QUIZ");
-  return {
-    channels: channelsRes.channels ?? [],
-    deadline_hours_before: 24,
-    quiz_notifications: quizPref?.enabled ?? true,
-  };
+export async function getNoticeSettings() {
+  return request<NoticeSettings>("/api/notices/settings");
 }
 
-export async function updateNoticeSettings(
-  userId: string,
-  payload: NoticeSettings,
-): Promise<{ message: string; settings: NoticeSettings }> {
-  await request(`/api/users/${userId}/notifications/channels`, {
-    method: "PUT",
-    body: JSON.stringify({ channels: payload.channels }),
-  });
-  return { message: "저장되었습니다.", settings: payload };
+export async function updateNoticeSettings(payload: NoticeSettings) {
+  return request<{ message: string; settings: NoticeSettings }>(
+    "/api/notices/settings",
+    {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    },
+  );
 }
 
-// Audio — course-scoped (replaces old /api/materials/audio-convert)
+// Audio — course-scoped
 export type AudioItem = {
   audioId: string;
   courseId: string;
@@ -629,14 +625,22 @@ export type AudioItem = {
 };
 
 export async function getAudio(courseId: string, audioId: string): Promise<AudioItem> {
-  return request<AudioItem>(`/api/courses/${courseId}/audios/${audioId}`);
+  const res = await request<any>(`/api/courses/${courseId}/audios/${audioId}`);
+  return {
+    audioId: res.audioId,
+    courseId: courseId,
+    fileName: res.fileName,
+    status: res.status,
+    transcriptPreview: res.transcript ? res.transcript.substring(0, 200) : null,
+    createdAt: res.uploadedAt,
+  };
 }
 
 export async function uploadAudio(
   courseId: string,
   file: File,
   scheduleId?: string,
-): Promise<{ audioId: string; fileName: string; status: string }> {
+): Promise<{ audioId: string; status: string; fileName: string; transcriptPreview?: string }> {
   const formData = new FormData();
   formData.append("file", file);
   if (scheduleId) {
@@ -645,7 +649,7 @@ export async function uploadAudio(
 
   const authHeaders = await getAuthHeaders();
   const response = await fetch(
-    `${API_BASE_URL}/api/courses/${courseId}/audios`,
+    `${resolveApiBaseUrl()}/api/courses/${courseId}/audios`,
     {
       method: "POST",
       headers: {
@@ -662,23 +666,29 @@ export async function uploadAudio(
     try {
       const body = (await response.json()) as { detail?: string };
       if (body?.detail) message = body.detail;
-    } catch {
-      // ignore parse error
-    }
+    } catch { /* ignore */ }
     throw new Error(message);
   }
 
-  return (await response.json()) as {
-    audioId: string;
-    fileName: string;
-    status: string;
+  const data = await response.json();
+  return {
+    audioId: data.audioId,
+    status: data.status,
+    fileName: data.fileName,
   };
 }
 
-// getLatestQuiz / generateQuiz: removed (endpoints do not exist in backend).
-// Use getCourseQuizzes(courseId) and createQuiz(courseId, payload).
-
-// getAnalysisReport: removed (no generic endpoint). Use getScriptAnalysis(courseId, scriptId).
+export async function getAudioConvertTask(courseId: string, audioId: string) {
+  const res = await request<any>(`/api/courses/${courseId}/audios/${audioId}`);
+  return {
+    audioId: res.audioId,
+    status: res.status,
+    transcript: res.transcript,
+    transcriptPreview: res.transcript ? res.transcript.substring(0, 200) : null,
+    completedAt: res.transcriptCompletedAt,
+    fileName: res.fileName,
+  };
+}
 
 // User Profile APIs
 export async function getUserProfile(userId: string): Promise<UserProfile> {
@@ -706,7 +716,7 @@ export async function updateUserProfile(
 
     const authHeaders = await getAuthHeaders();
     const imgRes = await fetch(
-      `${API_BASE_URL}/api/users/${userId}/profile/image`,
+      `${resolveApiBaseUrl()}/api/users/${userId}/profile/image`,
       {
         method: "POST",
         headers: {
@@ -723,9 +733,7 @@ export async function updateUserProfile(
       try {
         const body = (await imgRes.json()) as { detail?: string };
         if (body?.detail) message = body.detail;
-      } catch {
-        // ignore parse error
-      }
+      } catch { /* ignore */ }
       throw new Error(message);
     }
 
@@ -751,7 +759,7 @@ export async function getStudentQuizHistory(courseId?: string): Promise<{
 }> {
   const params = new URLSearchParams();
   if (courseId) {
-    params.append("courseId", courseId);
+    params.append("course_id", courseId);
   }
   return request<{
     history: QuizSubmissionHistory[];
@@ -767,7 +775,7 @@ export async function getStudentMaterials(courseId?: string): Promise<{
 }> {
   const params = new URLSearchParams();
   if (courseId) {
-    params.append("courseId", courseId);
+    params.append("course_id", courseId);
   }
   return request<{
     materials: StudentMaterialItem[];
@@ -786,7 +794,7 @@ export async function getInstructorComprehensionTrends(
 }> {
   const params = new URLSearchParams();
   if (courseId) {
-    params.append("courseId", courseId);
+    params.append("course_id", courseId);
   }
   return request<{
     trends: ComprehensionTrendItem[];
@@ -801,7 +809,7 @@ export async function getInstructorWeakTopics(courseId?: string): Promise<{
 }> {
   const params = new URLSearchParams();
   if (courseId) {
-    params.append("courseId", courseId);
+    params.append("course_id", courseId);
   }
   return request<{
     weakTopics: WeakTopicItem[];
@@ -816,7 +824,7 @@ export async function getInstructorUploadStatus(courseId?: string): Promise<{
 }> {
   const params = new URLSearchParams();
   if (courseId) {
-    params.append("courseId", courseId);
+    params.append("course_id", courseId);
   }
   return request<{
     uploadStatus: UploadStatusItem[];
@@ -991,9 +999,10 @@ export type CourseScriptListItem = {
   weekNumber?: number | null;
   uploadedAt: string;
   downloadUrl?: string;
+  status?: string;
 };
 
-// Script Types (분석 상세 등 — 별도 엔드포인트)
+// Script Types
 export type ScriptAnalysis = {
   scriptId: string;
   fileName: string;
@@ -1017,21 +1026,25 @@ export async function uploadScript(
     title: string;
     weekNumber?: number;
     topic?: string;
+    scheduleId?: string;
   },
 ): Promise<{ scriptId: string; status: string; message: string }> {
   const formData = new FormData();
   formData.append("file", payload.file);
   formData.append("title", payload.title);
   if (payload.weekNumber) {
-    formData.append("weekNumber", payload.weekNumber.toString());
+    formData.append("week_number", payload.weekNumber.toString());
   }
   if (payload.topic) {
     formData.append("topic", payload.topic);
   }
+  if (payload.scheduleId) {
+    formData.append("schedule_id", payload.scheduleId);
+  }
 
   const authHeaders = await getAuthHeaders();
   const response = await fetch(
-    `${API_BASE_URL}/api/courses/${courseId}/scripts`,
+    `${resolveApiBaseUrl()}/api/courses/${courseId}/scripts`,
     {
       method: "POST",
       headers: {
@@ -1047,12 +1060,8 @@ export async function uploadScript(
     let message = `스크립트 업로드 실패 (${response.status})`;
     try {
       const body = (await response.json()) as { detail?: string };
-      if (body?.detail) {
-        message = body.detail;
-      }
-    } catch {
-      // ignore parse error
-    }
+      if (body?.detail) message = body.detail;
+    } catch { /* ignore */ }
     throw new Error(message);
   }
 
@@ -1073,7 +1082,7 @@ export async function getScriptAnalysis(
   courseId: string,
   scriptId: string,
 ): Promise<ScriptAnalysis> {
-  return request(`/api/courses/${courseId}/scripts/${scriptId}`);
+  return request(`/api/courses/${courseId}/scripts/${scriptId}/analysis`);
 }
 
 // Materials Types
@@ -1173,6 +1182,30 @@ export async function createReviewSummary(
   );
 }
 
+export async function generatePreviewGuide(
+  courseId: string,
+  scheduleId: string,
+): Promise<any> {
+  return request(
+    `/api/courses/${courseId}/schedules/${scheduleId}/preview-guides`,
+    {
+      method: "POST",
+    },
+  );
+}
+
+export async function generateReviewSummary(
+  courseId: string,
+  scheduleId: string,
+): Promise<any> {
+  return request(
+    `/api/courses/${courseId}/schedules/${scheduleId}/review-summaries`,
+    {
+      method: "POST",
+    },
+  );
+}
+
 export async function uploadMaterial(
   courseId: string,
   payload: {
@@ -1190,7 +1223,7 @@ export async function uploadMaterial(
 
   const authHeaders = await getAuthHeaders();
   const response = await fetch(
-    `${API_BASE_URL}/api/courses/${courseId}/materials`,
+    `${resolveApiBaseUrl()}/api/courses/${courseId}/materials`,
     {
       method: "POST",
       headers: {
@@ -1206,12 +1239,8 @@ export async function uploadMaterial(
     let message = `자료 업로드 실패 (${response.status})`;
     try {
       const body = (await response.json()) as { detail?: string };
-      if (body?.detail) {
-        message = body.detail;
-      }
-    } catch {
-      // ignore parse error
-    }
+      if (body?.detail) message = body.detail;
+    } catch { /* ignore */ }
     throw new Error(message);
   }
 
@@ -1241,7 +1270,7 @@ export type Notification = {
 
 export type NotificationPreferences = {
   userId: string;
-  channels: string[]; // email, push, sms, etc
+  channels: string[];
   quizNotifications: boolean;
   materialNotifications: boolean;
   deadlineNotifications: boolean;
