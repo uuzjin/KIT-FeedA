@@ -27,7 +27,13 @@
       "Bash(git:*)",
       "Bash(.venv/Scripts/python.exe -m pytest tests/ -v)",
       "Bash(.venv/Scripts/python.exe -m pytest backend/tests/ -v)",
-      "Bash(.venv/Scripts/python.exe -m pytest backend/tests/ -v --tb=short)"
+      "Bash(.venv/Scripts/python.exe -m pytest backend/tests/ -v --tb=short)",
+      "Bash(grep -E \"\\\\.md$\")",
+      "Bash(npx tsc:*)",
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(ls node_modules/.bin/tsc*)",
+      "Bash(which node:*)",
+      "Bash(npm install:*)"
     ]
   }
 }
