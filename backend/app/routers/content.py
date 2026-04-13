@@ -14,6 +14,11 @@ from ..core.rate_limit import AI_RATE_LIMIT, limiter
 from ..database import supabase
 from ..dependencies import require_instructor_of
 
+materials_router = APIRouter(
+    prefix="/api/courses/{course_id}/materials",
+    tags=["content"],
+)
+
 # 두 리소스의 URL 계층이 다르므로 별도 router 객체 사용
 preview_router = APIRouter(
     prefix="/api/courses/{course_id}/schedules/{schedule_id}/preview-guides",
@@ -110,6 +115,63 @@ def _format_preview_guide(row: dict) -> dict:
         "createdAt": row["created_at"],
         "completedAt": row.get("completed_at"),
     }
+
+
+def _format_material(row: dict, material_type: str) -> dict:
+    schedule = row.get("course_schedules") if isinstance(row.get("course_schedules"), dict) else {}
+    week_number = schedule.get("week_number")
+    topic = schedule.get("topic")
+    if material_type == "PREVIEW_GUIDE":
+        fallback_title = f"{week_number}주차 예습 가이드" if week_number else "예습 가이드"
+    else:
+        fallback_title = f"{week_number}주차 복습 요약" if week_number else "복습 요약"
+
+    return {
+        "materialId": row["id"],
+        "courseId": row["course_id"],
+        "scheduleId": row.get("schedule_id"),
+        "type": material_type,
+        "title": row.get("title") or fallback_title,
+        "content": row.get("content") or row.get("summary"),
+        "createdAt": row["created_at"],
+        "updatedAt": row.get("completed_at") or row.get("created_at"),
+        "weekNumber": week_number,
+        "topic": topic,
+        "status": row.get("status"),
+    }
+
+
+@materials_router.get("")
+def list_course_materials(
+    course_id: str,
+    type: str | None = None,
+    current_user: dict = Depends(get_current_user),
+):
+    if type not in {None, "PREVIEW_GUIDE", "REVIEW_SUMMARY"}:
+        raise HTTPException(status_code=400, detail="지원하지 않는 자료 타입입니다.")
+
+    materials: list[dict] = []
+
+    if type in (None, "PREVIEW_GUIDE"):
+        previews = (
+            supabase.table("preview_guides")
+            .select("id, course_id, schedule_id, title, summary, status, created_at, completed_at, course_schedules(week_number, topic)")
+            .eq("course_id", course_id)
+            .execute()
+        )
+        materials.extend(_format_material(row, "PREVIEW_GUIDE") for row in (previews.data or []))
+
+    if type in (None, "REVIEW_SUMMARY"):
+        reviews = (
+            supabase.table("review_summaries")
+            .select("id, course_id, schedule_id, title, content, status, created_at, completed_at, course_schedules(week_number, topic)")
+            .eq("course_id", course_id)
+            .execute()
+        )
+        materials.extend(_format_material(row, "REVIEW_SUMMARY") for row in (reviews.data or []))
+
+    materials.sort(key=lambda row: row.get("createdAt") or "", reverse=True)
+    return {"materials": materials, "totalCount": len(materials)}
 
 
 @preview_router.post("", status_code=202)
