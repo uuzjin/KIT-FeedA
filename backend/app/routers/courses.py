@@ -53,133 +53,167 @@ def _execute_with_retry(builder, *, attempts: int = 2, delay_seconds: float = 0.
     last_error = None
     for attempt in range(attempts):
         try:
+            # postgrest-py의 execute()는 에러 발생 시 예외를 던집니다.
             result = builder.execute()
             if result is not None:
                 return result
         except Exception as exc:
             last_error = exc
+            # 이미 HTTPException인 경우 (예: 404, 403 등) 그대로 다시 던집니다.
+            if isinstance(exc, HTTPException):
+                raise exc
+            
+            # Postgrest 에러 메시지에 따라 적절한 HTTP 상태 코드 할당
+            error_msg = str(exc).lower()
+            if "row level security" in error_msg or "permission denied" in error_msg:
+                raise HTTPException(status_code=403, detail="데이터베이스 접근 권한이 없습니다. (RLS 정책 확인 필요)") from exc
+            if "duplicate key" in error_msg or "unique constraint" in error_msg:
+                # 409 Conflict를 바로 던지지 않고 호출부에서 판단하도록 예외를 유지할 수도 있지만,
+                # 재시도 의미가 없으므로 여기서 던집니다.
+                raise HTTPException(status_code=409, detail="이미 존재하는 데이터입니다.") from exc
+
         if attempt < attempts - 1:
             time.sleep(delay_seconds)
 
     if last_error is not None:
+        # 최종 실패 시 503 대신 500 또는 원본 에러를 활용
+        if isinstance(last_error, HTTPException):
+            raise last_error
         raise HTTPException(
-            status_code=503,
-            detail="????? ?? ??? ??????. ?? ? ?? ??? ???.",
+            status_code=500,
+            detail=f"데이터베이스 작업 중 오류가 발생했습니다: {str(last_error)}",
         ) from last_error
-    raise HTTPException(
-        status_code=503,
-        detail="????? ?? ??? ??????. ?? ? ?? ??? ???.",
-    )
+    
+    raise HTTPException(status_code=500, detail="데이터베이스 작업 중 알 수 없는 오류가 발생했습니다.")
 
 
 def _notify_invite_acceptance(course_id: str, course_name: str, student_id: str) -> None:
     metadata = {"courseId": course_id, "studentId": student_id}
 
     try:
-        _create_notification(
-            user_id=student_id,
-            notification_type="SYSTEM",
-            title="Course joined",
-            body=f"Joined '{course_name}'.",
-            metadata=metadata,
-        )
+        # 알림 생성은 실패해도 핵심 로직(수강 등록)에 영향을 주지 않도록 예외 처리
+        supabase.table("notifications").insert({
+            "user_id": student_id,
+            "notification_type": "SYSTEM",
+            "title": "강의 참여 완료",
+            "body": f"'{course_name}' 강의에 참여했습니다.",
+            "metadata": metadata,
+            "is_read": False,
+        }).execute()
 
+        # 강사들에게 알림 전송
         instructor_rows = (
-            _execute_with_retry(
-                supabase.table("course_instructors")
-                .select("instructor_id")
-                .eq("course_id", course_id)
-            ).data
-            or []
-        )
+            supabase.table("course_instructors")
+            .select("instructor_id")
+            .eq("course_id", course_id)
+            .execute()
+        ).data or []
 
-        profile_row = _execute_with_retry(
+        profile_row = (
             supabase.table("profiles")
             .select("name")
             .eq("id", student_id)
             .maybe_single()
+            .execute()
         )
-        student_name = (profile_row.data or {}).get("name") or "Student"
+        student_name = (profile_row.data or {}).get("name") or "학생"
 
-        instructor_ids = {
-            row["instructor_id"]
-            for row in instructor_rows
-            if row.get("instructor_id")
-        }
-        for instructor_id in instructor_ids:
+        for row in instructor_rows:
+            instructor_id = row.get("instructor_id")
+            if not instructor_id: continue
             try:
-                _create_notification(
-                    user_id=instructor_id,
-                    notification_type="SYSTEM",
-                    title="New student joined",
-                    body=f"{student_name} joined '{course_name}'.",
-                    metadata=metadata,
-                )
+                supabase.table("notifications").insert({
+                    "user_id": instructor_id,
+                    "notification_type": "SYSTEM",
+                    "title": "새로운 학생 참여",
+                    "body": f"{student_name} 학생이 '{course_name}' 강의에 참여했습니다.",
+                    "metadata": metadata,
+                    "is_read": False,
+                }).execute()
             except Exception:
                 continue
-    except Exception:
+    except Exception as e:
+        print(f"Notification error: {e}")
         return
 
 
 def _accept_invite_for_user(current_user: dict, token: str, expected_course_id: str | None) -> dict:
     if current_user.get("role") != "STUDENT":
-        raise HTTPException(status_code=403, detail="학생만 초대 링크로 수강 등록할 수 있습니다.")
+        raise HTTPException(status_code=403, detail="학생 계정만 초대 링크로 수강 등록할 수 있습니다.")
 
-    invite = _execute_with_retry(
+    # 1. 초대장 존재 여부 확인
+    invite_res = _execute_with_retry(
         supabase.table("course_invites")
         .select("*")
         .eq("token", token)
         .maybe_single()
     )
-    if not invite or not invite.data:
-        raise HTTPException(status_code=404, detail="유효하지 않은 초대 코드입니다.")
+    if not invite_res or not invite_res.data:
+        raise HTTPException(status_code=404, detail="유효하지 않은 초대 코드입니다. 링크를 다시 확인해주세요.")
 
-    course_id = invite.data["course_id"]
-    if expected_course_id is not None and course_id != expected_course_id:
+    invite_data = invite_res.data
+    course_id = invite_data["course_id"]
+
+    # 2. 강의 ID 검증 (경로 파라미터가 있는 경우)
+    if expected_course_id is not None and str(course_id) != str(expected_course_id):
         raise HTTPException(status_code=400, detail="초대 링크가 이 강의와 일치하지 않습니다.")
 
-    expires_raw = invite.data.get("expires_at")
+    # 3. 만료 체크
+    expires_raw = invite_data.get("expires_at")
     if expires_raw:
         expires_at = datetime.fromisoformat(str(expires_raw).replace("Z", "+00:00"))
         if datetime.now(timezone.utc) > expires_at:
-            raise HTTPException(status_code=410, detail="만료된 초대 링크입니다.")
+            raise HTTPException(status_code=410, detail="만료된 초대 링크입니다. 강사에게 새 링크를 요청해주세요.")
 
-    existing = _execute_with_retry(
+    # 4. 이미 수강 등록된 학생인지 확인
+    existing_enroll = _execute_with_retry(
         supabase.table("course_enrollments")
         .select("id")
         .eq("course_id", course_id)
         .eq("student_id", current_user["id"])
         .maybe_single()
     )
-    if existing and existing.data:
+    if existing_enroll and existing_enroll.data:
         raise HTTPException(status_code=409, detail="이미 이 강의에 수강 등록되어 있습니다.")
 
-    _execute_with_retry(
-        supabase.table("course_enrollments").insert(
-            {"course_id": course_id, "student_id": current_user["id"], "join_method": "INVITE"}
+    # 5. 수강 등록 실행
+    try:
+        _execute_with_retry(
+            supabase.table("course_enrollments").insert({
+                "course_id": course_id,
+                "student_id": current_user["id"],
+                "join_method": "INVITE"
+            })
         )
-    )
+    except HTTPException as e:
+        if e.status_code == 409:
+            raise HTTPException(status_code=409, detail="이미 이 강의에 등록된 수강생입니다.")
+        raise e
 
-    course_row = _execute_with_retry(
+    # 6. 강의 이름 조회 및 알림 처리
+    course_res = _execute_with_retry(
         supabase.table("courses")
         .select("course_name")
         .eq("id", course_id)
         .maybe_single()
     )
-    course_name = course_row.data.get("course_name") if course_row and course_row.data else ""
+    course_name = (course_res.data or {}).get("course_name") or "강의"
+    
+    # 비동기적으로 알림 처리 (필수는 아니나 별도 스레드나 태스크로 뺄 수 있음)
     _notify_invite_acceptance(course_id, course_name, current_user["id"])
 
-    enroll_row = _execute_with_retry(
+    # 7. 등록 결과 조회 (joined_at)
+    enroll_res = _execute_with_retry(
         supabase.table("course_enrollments")
         .select("joined_at")
         .eq("course_id", course_id)
         .eq("student_id", current_user["id"])
         .maybe_single()
     )
-    joined_at = enroll_row.data.get("joined_at") if enroll_row and enroll_row.data else datetime.now(timezone.utc).isoformat()
+    joined_at = (enroll_res.data or {}).get("joined_at") or datetime.now(timezone.utc).isoformat()
 
     return {
-        "message": "수강 등록이 완료되었습니다.",
+        "message": f"'{course_name}' 강의에 성공적으로 등록되었습니다.",
         "courseId": course_id,
         "courseName": course_name,
         "joinedAt": joined_at,
