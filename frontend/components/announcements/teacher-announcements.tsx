@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useAuth } from "@/contexts/auth-context";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -25,9 +26,8 @@ import {
 import {
   getNotices,
   getNoticeSettings,
-  Announcement,
   updateNoticeSettings,
-  type Notice,
+  type Announcement,
   type NoticeSettings,
 } from "@/lib/api";
 
@@ -75,38 +75,47 @@ const draftAnnouncements = [
 ];
 
 export function TeacherAnnouncements() {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState("published");
   const [notices, setNotices] = useState<Announcement[]>([]);
   const [settings, setSettings] = useState<NoticeSettings | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!user?.id) return;
     const load = async () => {
+      setError(null);
       try {
         const [noticesData, settingsData] = await Promise.all([
           getNotices(),
-          getNoticeSettings(),
+          getNoticeSettings(user.id),
         ]);
         setNotices(noticesData);
         setSettings(settingsData);
-      } catch {
-        // fallback to local demo data
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "데이터를 불러오지 못했습니다.");
       }
     };
     void load();
-  }, []);
+  }, [user?.id]);
 
   const handleSaveSettings = async () => {
-    if (!settings) return;
+    if (!settings || !user?.id) return;
     try {
-      const result = await updateNoticeSettings(settings);
+      const result = await updateNoticeSettings(user.id, settings);
       setSettings(result.settings);
-    } catch {
-      // keep silent in demo mode
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "설정 저장에 실패했습니다.");
     }
   };
 
   return (
     <div className="flex flex-col gap-5 p-4 pb-24">
+      {error && (
+        <div className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+          {error}
+        </div>
+      )}
       {/* 페이지 헤더 */}
       <div className="flex items-center justify-between">
         <div>

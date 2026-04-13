@@ -248,16 +248,7 @@ export type StudentMaterialItem = {
   createdAt: string;
 };
 
-export async function login(payload: { email: string; password: string }) {
-  return request<LoginResponse>("/api/auth/login", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
-
-export async function getDashboardSummary() {
-  return request<DashboardSummary>("/api/dashboard/summary");
-}
+// login() removed — authentication is handled by Supabase SDK in auth-context.tsx
 
 export async function getNotices(courseId?: string) {
   if (!courseId) {
@@ -565,57 +556,56 @@ export async function syncLmsStudents(
   });
 }
 
-export async function getNoticeSettings() {
-  return request<NoticeSettings>("/api/notices/settings");
+// Notification settings — scoped to userId
+// Merges /api/users/{userId}/notifications/channels + preferences
+export async function getNoticeSettings(userId: string): Promise<NoticeSettings> {
+  const [channelsRes, prefsRes] = await Promise.all([
+    request<{ channels: string[] }>(`/api/users/${userId}/notifications/channels`),
+    request<{ preferences: Array<{ notificationType: string; enabled: boolean }> }>(
+      `/api/users/${userId}/notifications/preferences`,
+    ),
+  ]);
+  const quizPref = prefsRes.preferences?.find((p) => p.notificationType === "QUIZ");
+  return {
+    channels: channelsRes.channels ?? [],
+    deadline_hours_before: 24,
+    quiz_notifications: quizPref?.enabled ?? true,
+  };
 }
 
-export async function updateNoticeSettings(payload: NoticeSettings) {
-  return request<{ message: string; settings: NoticeSettings }>(
-    "/api/notices/settings",
-    {
-      method: "PUT",
-      body: JSON.stringify(payload),
-    },
-  );
-}
-
-export async function getLatestQuiz() {
-  return request<QuizLatest>("/api/quiz/latest");
-}
-
-export async function generateQuiz(payload: QuizGeneratePayload) {
-  return request<{ message: string; quiz: QuizLatest; difficulty: string }>(
-    "/api/quiz/generate",
-    {
-      method: "POST",
-      body: JSON.stringify(payload),
-    },
-  );
-}
-
-export async function createAudioConvertTask(payload: {
-  file_name: string;
-  estimated_minutes?: number;
-}) {
-  return request<AudioConvertTask>("/api/materials/audio-convert", {
-    method: "POST",
-    body: JSON.stringify(payload),
+export async function updateNoticeSettings(
+  userId: string,
+  payload: NoticeSettings,
+): Promise<{ message: string; settings: NoticeSettings }> {
+  await request(`/api/users/${userId}/notifications/channels`, {
+    method: "PUT",
+    body: JSON.stringify({ channels: payload.channels }),
   });
+  return { message: "저장되었습니다.", settings: payload };
 }
 
-export async function getAudioConvertTask(taskId: string) {
-  return request<AudioConvertTask>(`/api/materials/audio-convert/${taskId}`);
+// Audio — course-scoped (replaces old /api/materials/audio-convert)
+export type AudioItem = {
+  audioId: string;
+  courseId: string;
+  fileName: string;
+  status: string; // PENDING | PROCESSING | COMPLETED | FAILED
+  transcriptPreview: string | null;
+  createdAt: string;
+};
+
+export async function getAudio(courseId: string, audioId: string): Promise<AudioItem> {
+  return request<AudioItem>(`/api/courses/${courseId}/audios/${audioId}`);
 }
 
-export async function getAnalysisReport() {
-  return Promise.resolve<AnalysisReport>({
-    source_file: "대기 중인 파일",
-    logical_gaps: 0,
-    missing_terms: [],
-    missing_prerequisites: [],
-    suggestions: ["분석 API는 getScriptAnalysis()로 연결해야 합니다."],
-  });
-}
+// createAudioConvertTask / getAudioConvertTask: removed (wrong endpoints).
+// Use direct fetch with FormData for upload (see teacher-materials.tsx),
+// then poll with getAudio(courseId, audioId).
+
+// getLatestQuiz / generateQuiz: removed (endpoints do not exist in backend).
+// Use getCourseQuizzes(courseId) and createQuiz(courseId, payload).
+
+// getAnalysisReport: removed (no generic endpoint). Use getScriptAnalysis(courseId, scriptId).
 
 // User Profile APIs
 export async function getUserProfile(userId: string): Promise<UserProfile> {

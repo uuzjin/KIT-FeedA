@@ -26,34 +26,45 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  createAudioConvertTask,
-  getAnalysisReport,
-  getAudioConvertTask,
-  type AnalysisReport,
+  getCourses,
+  getAudio,
+  type Course,
   type AudioConvertTask,
 } from "@/lib/api";
 import { supabase } from "@/lib/supabase/client";
 
 export function TeacherMaterials() {
-  // TODO: 실제 환경에서는 백엔드 API를 호출하여 데이터를 설정해야 합니다.
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
   const [previewMaterials, setPreviewMaterials] = useState<any[]>([]);
   const [reviewMaterials, setReviewMaterials] = useState<any[]>([]);
   const [scripts, setScripts] = useState<any[]>([]);
 
   const [activeTab, setActiveTab] = useState("preview");
   const [audioTask, setAudioTask] = useState<AudioConvertTask | null>(null);
-  const [analysisReport, setAnalysisReport] = useState<AnalysisReport | null>(
-    null,
-  );
   const [isStartingConvert, setIsStartingConvert] = useState(false);
   const [isUploadingScript, setIsUploadingScript] = useState(false);
   const scriptInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
 
-  // TODO: 실제 환경에서는 라우터 파라미터나 상태 관리에서 현재 강의 ID를 가져와야 합니다.
-  const courseId = "crs_001";
+  // Active courseId — use selected course if set, otherwise first from list
+  const courseId = selectedCourseId ?? courses[0]?.courseId ?? null;
+
+  // Load instructor's courses on mount
+  useEffect(() => {
+    const loadCourses = async () => {
+      try {
+        const res = await getCourses();
+        setCourses(res.courses ?? []);
+      } catch (err) {
+        console.error("강의 목록 로드 실패:", err);
+      }
+    };
+    void loadCourses();
+  }, []);
 
   useEffect(() => {
+    if (!courseId) return;
     const fetchMaterialsData = async () => {
       try {
         // 1. 예습 자료 (preview_guides) 조회
@@ -135,34 +146,37 @@ export function TeacherMaterials() {
     };
 
     void fetchMaterialsData();
+  }, [courseId]);
 
-    const loadReport = async () => {
-      try {
-        const report = await getAnalysisReport();
-        setAnalysisReport(report);
-      } catch {
-        // fallback to local demo
-      }
-    };
-    void loadReport();
-  }, []);
-
+  // Poll audio transcription status using the correct course-scoped endpoint
   useEffect(() => {
-    if (!audioTask || audioTask.status === "completed") {
+    if (!audioTask || !courseId || audioTask.status === "completed") {
       return;
     }
 
     const intervalId = window.setInterval(async () => {
       try {
-        const task = await getAudioConvertTask(audioTask.task_id);
-        setAudioTask(task);
+        const item = await getAudio(courseId, audioTask.task_id);
+        // Map AudioItem → AudioConvertTask shape used by the component
+        setAudioTask((prev) =>
+          prev
+            ? {
+                ...prev,
+                status: item.status === "COMPLETED" ? "completed" : "processing",
+                transcript_preview: item.transcriptPreview,
+              }
+            : prev,
+        );
+        if (item.status === "COMPLETED" || item.status === "FAILED") {
+          window.clearInterval(intervalId);
+        }
       } catch {
         window.clearInterval(intervalId);
       }
     }, 2000);
 
     return () => window.clearInterval(intervalId);
-  }, [audioTask]);
+  }, [audioTask, courseId]);
 
   const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -270,6 +284,30 @@ export function TeacherMaterials() {
         </Button>
       </div>
 
+      {/* 강의 선택 */}
+      {courses.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {courses.map((c) => (
+            <button
+              key={c.courseId}
+              onClick={() => setSelectedCourseId(c.courseId)}
+              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                courseId === c.courseId
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border bg-muted text-muted-foreground hover:border-primary/50"
+              }`}
+            >
+              {c.courseName}
+            </button>
+          ))}
+        </div>
+      )}
+      {!courseId && courses.length === 0 && (
+        <p className="text-sm text-muted-foreground">
+          {"담당 강의가 없습니다. 먼저 강의를 생성해 주세요."}
+        </p>
+      )}
+
       {/* AI 분석 카드 */}
       <Card className="border-primary/20 bg-linear-to-br from-primary/5 to-primary/10">
         <CardContent className="p-4">
@@ -329,26 +367,18 @@ export function TeacherMaterials() {
         </CardContent>
       </Card>
 
-      {(audioTask || analysisReport) && (
+      {audioTask && (
         <Card className="border-border/40">
           <CardContent className="space-y-2 p-4">
-            {audioTask && (
-              <p className="text-sm text-muted-foreground">
-                {"음성 변환: "}
-                {audioTask.file_name}
-                {" · "}
-                {audioTask.progress}%{" ("}
-                {audioTask.status}
-                {")"}
-              </p>
-            )}
-            {analysisReport && (
-              <p className="text-sm text-muted-foreground">
-                {"분석 리포트: "}
-                {analysisReport.source_file}
-                {" · 논리 허점 "}
-                {analysisReport.logical_gaps}
-                {"개"}
+            <p className="text-sm text-muted-foreground">
+              {"음성 변환: "}
+              {audioTask.file_name}
+              {" · "}
+              {audioTask.status === "completed" ? "완료" : "처리 중"}
+            </p>
+            {audioTask.transcript_preview && (
+              <p className="text-xs text-muted-foreground line-clamp-2">
+                {audioTask.transcript_preview}
               </p>
             )}
           </CardContent>
