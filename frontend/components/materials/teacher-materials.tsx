@@ -109,7 +109,6 @@ export function TeacherMaterials() {
   >({});
 
   const [activeTab, setActiveTab] = useState("preview");
-  const [audioTask, setAudioTask] = useState<any | null>(null);
   const [audioList, setAudioList] = useState<AudioItem[]>([]);
   const [transcriptSheet, setTranscriptSheet] = useState<{
     open: boolean;
@@ -129,13 +128,13 @@ export function TeacherMaterials() {
     scriptTitle: string;
     analyses: PostAnalysisItem[];
     loading: boolean;
-    triggering: string | null; // "structure" | "concepts" | null
+    triggering: string | null;
   }>({ open: false, scriptId: null, scriptTitle: "", analyses: [], loading: false, triggering: null });
   
   const scriptInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
 
-  // Load schedules + per-schedule preview/review guides + scripts
+  // 데이터 로드
   useEffect(() => {
     if (!courseId) return;
 
@@ -183,23 +182,21 @@ export function TeacherMaterials() {
           );
         }
       } catch (err) {
-        console.error("강의 자료 데이터 로드 실패:", err);
+        console.error("데이터 로드 실패:", err);
       }
     };
 
     void loadData();
   }, [courseId]);
 
-  // ── Realtime Subscriptions ──
-  const hasPendingAudio = audioList.some(a => a.status !== "COMPLETED" && a.status !== "FAILED");
+  // Realtime
   useRealtimeSubscription({
     table: "audios",
     filter: courseId ? `course_id=eq.${courseId}` : undefined,
     event: "UPDATE",
-    enabled: !!courseId && hasPendingAudio,
+    enabled: !!courseId,
     onUpdate: (payload) => {
       const row = payload.new;
-      setAudioTask((prev: any) => prev?.audioId === row.id ? { ...prev, status: row.status } : prev);
       setAudioList((prev) => prev.map(a => a.audioId === row.id ? { ...a, status: row.status as string } : a));
     },
   });
@@ -216,7 +213,7 @@ export function TeacherMaterials() {
     },
   });
 
-  // ── 시뮬레이션 ──
+  // 시뮬레이션
   useEffect(() => {
     const hasAnalyzing = scripts.some(s => s.status === "analyzing");
     if (!hasAnalyzing) return;
@@ -236,25 +233,25 @@ export function TeacherMaterials() {
     return () => clearInterval(interval);
   }, [scripts]);
 
-  const handleGeneratePreview = async (scheduleId: string) => {
-    if (!courseId) return;
+  const handleGeneratePreview = async (sid: string | null) => {
+    if (!courseId || !sid) return;
     try {
-      await generatePreviewGuide(courseId, scheduleId);
-      alert("예습 자료 생성 요청이 완료되었습니다.");
-      const preview = await getPreviewGuide(courseId, scheduleId).catch(() => null);
-      setSchedules(prev => prev.map(s => s.scheduleId === scheduleId ? { ...s, preview } : s));
+      await generatePreviewGuide(courseId, sid);
+      alert("예습 자료 생성 요청이 전송되었습니다.");
+      const preview = await getPreviewGuide(courseId, sid).catch(() => null);
+      setSchedules(prev => prev.map(s => s.scheduleId === sid ? { ...s, preview } : s));
     } catch (e: any) {
       alert(`오류: ${e.message}`);
     }
   };
 
-  const handleGenerateReview = async (scheduleId: string) => {
-    if (!courseId) return;
+  const handleGenerateReview = async (sid: string | null) => {
+    if (!courseId || !sid) return;
     try {
-      await generateReviewSummary(courseId, scheduleId);
-      alert("복습 자료 생성 요청이 완료되었습니다.");
-      const review = await getReviewSummary(courseId, scheduleId).catch(() => null);
-      setSchedules(prev => prev.map(s => s.scheduleId === scheduleId ? { ...s, review } : s));
+      await generateReviewSummary(courseId, sid);
+      alert("복습 자료 생성 요청이 전송되었습니다.");
+      const review = await getReviewSummary(courseId, sid).catch(() => null);
+      setSchedules(prev => prev.map(s => s.scheduleId === sid ? { ...s, review } : s));
     } catch (e: any) {
       alert(`오류: ${e.message}`);
     }
@@ -284,7 +281,6 @@ export function TeacherMaterials() {
     }
   };
 
-  // ── 새로운 스크립트 핸들러 ──
   const handleScriptFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -390,36 +386,19 @@ export function TeacherMaterials() {
     }
   };
 
-  const previewMaterials = schedules.filter(s => s.preview !== null).map(s => ({
-    id: s.preview!.previewGuideId,
-    week: `${s.weekNumber}주차`,
-    title: s.preview!.title || `${s.weekNumber}주차 예습 가이드`,
-    status: s.preview!.status === "completed" ? "published" : s.preview!.status,
-    lastModified: new Date(s.preview!.createdAt).toLocaleDateString("ko-KR"),
-  }));
-
-  const reviewMaterials = schedules.filter(s => s.review !== null).map(s => ({
-    id: s.review!.reviewSummaryId,
-    week: `${s.weekNumber}주차`,
-    title: s.review!.title || `${s.weekNumber}주차 복습 요약`,
-    status: s.review!.status === "completed" ? "published" : s.review!.status,
-    lastModified: new Date(s.review!.createdAt).toLocaleDateString("ko-KR"),
-  }));
-
   return (
     <div className="flex flex-col gap-5 p-4 pb-24">
       <CourseInfoBanner />
 
-      {/* AI 분석 카드 */}
       <Card className="border-primary/20 bg-linear-to-br from-primary/5 to-primary/10">
         <CardContent className="p-4">
           <div className="flex items-center gap-3">
             <div className="flex size-12 items-center justify-center rounded-xl bg-primary/20">
               <Sparkles className="size-6 text-primary" />
             </div>
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <h3 className="font-semibold text-foreground">AI 강의 자료 분석</h3>
-              <p className="text-sm text-muted-foreground">강의 자료를 업로드하면 AI가 구조를 분석하고 보완점을 제안합니다.</p>
+              <p className="text-sm text-muted-foreground truncate">강의 자료를 업로드하면 AI가 구조를 분석합니다.</p>
             </div>
           </div>
           <div className="mt-4 flex gap-2">
@@ -427,7 +406,7 @@ export function TeacherMaterials() {
             <input type="file" ref={audioInputRef} className="hidden" accept="audio/*" onChange={handleAudioUpload} />
             <Button size="sm" variant="secondary" className="flex-1 gap-2" onClick={() => scriptInputRef.current?.click()} disabled={isUploadingScript || !courseId}>
               <FileUp className="size-4" />
-              {isUploadingScript ? "처리 중..." : "강의 자료 업로드"}
+              {isUploadingScript ? "처리 중..." : "자료 업로드"}
             </Button>
             <Button size="sm" variant="secondary" className="flex-1 gap-2" onClick={() => audioInputRef.current?.click()} disabled={isStartingConvert || !courseId}>
               <Mic className="size-4" />
@@ -437,11 +416,10 @@ export function TeacherMaterials() {
         </CardContent>
       </Card>
 
-      {/* 오디오 목록 */}
       {audioList.length > 0 && (
         <Card className="border-border/40">
           <CardContent className="p-4">
-            <p className="mb-3 text-sm font-medium text-foreground">음성 변환 목록</p>
+            <p className="mb-3 text-sm font-medium">음성 변환 목록</p>
             <div className="flex flex-col gap-2">
               {audioList.map(audio => (
                 <div key={audio.audioId} className="flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2">
@@ -469,21 +447,18 @@ export function TeacherMaterials() {
 
         <TabsContent value="preview" className="mt-4">
           <div className="flex flex-col gap-3">
-            {previewMaterials.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">생성된 예습 자료가 없습니다.</p>}
-            {previewMaterials.map(m => (
-              <Card key={m.id} className="border-border/40 p-4">
+            {schedules.filter(s => s.preview).length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">생성된 예습 자료가 없습니다.</p>}
+            {schedules.filter(s => s.preview).map(s => (
+              <Card key={s.scheduleId} className="border-border/40 p-4">
                 <div className="flex items-start justify-between">
                   <div className="flex gap-3">
                     <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10">
-                      {m.status === "published" ? <CheckCircle className="size-5 text-emerald-500" /> : <Clock className="size-5 text-primary" />}
+                      {s.preview!.status === "completed" ? <CheckCircle className="size-5 text-emerald-500" /> : <Clock className="size-5 text-primary" />}
                     </div>
                     <div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="text-xs">{m.week}</Badge>
-                        <Badge variant="secondary" className="text-xs">{m.status === "published" ? "완료" : "생성 중"}</Badge>
-                      </div>
-                      <p className="mt-1 font-medium">{m.title}</p>
-                      <p className="text-xs text-muted-foreground">{m.lastModified}</p>
+                      <Badge variant="outline" className="text-xs">{s.weekNumber}주차</Badge>
+                      <p className="mt-1 font-medium">{s.preview!.title}</p>
+                      <p className="text-xs text-muted-foreground">업데이트: {new Date(s.preview!.createdAt).toLocaleDateString()}</p>
                     </div>
                   </div>
                 </div>
@@ -494,21 +469,18 @@ export function TeacherMaterials() {
 
         <TabsContent value="review" className="mt-4">
           <div className="flex flex-col gap-3">
-            {reviewMaterials.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">생성된 복습 자료가 없습니다.</p>}
-            {reviewMaterials.map(m => (
-              <Card key={m.id} className="border-border/40 p-4">
+            {schedules.filter(s => s.review).length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">생성된 복습 자료가 없습니다.</p>}
+            {schedules.filter(s => s.review).map(s => (
+              <Card key={s.scheduleId} className="border-border/40 p-4">
                 <div className="flex items-start justify-between">
                   <div className="flex gap-3">
                     <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10">
-                      {m.status === "published" ? <CheckCircle className="size-5 text-emerald-500" /> : <Clock className="size-5 text-primary" />}
+                      {s.review!.status === "completed" ? <CheckCircle className="size-5 text-emerald-500" /> : <Clock className="size-5 text-primary" />}
                     </div>
                     <div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="text-xs">{m.week}</Badge>
-                        <Badge variant="secondary" className="text-xs">{m.status === "published" ? "완료" : "생성 중"}</Badge>
-                      </div>
-                      <p className="mt-1 font-medium">{m.title}</p>
-                      <p className="text-xs text-muted-foreground">{m.lastModified}</p>
+                      <Badge variant="outline" className="text-xs">{s.weekNumber}주차</Badge>
+                      <p className="mt-1 font-medium">{s.review!.title}</p>
+                      <p className="text-xs text-muted-foreground">업데이트: {new Date(s.review!.createdAt).toLocaleDateString()}</p>
                     </div>
                   </div>
                 </div>
@@ -560,7 +532,6 @@ export function TeacherMaterials() {
         </TabsContent>
       </Tabs>
 
-      {/* 모달들 */}
       <Dialog open={uploadModal.open} onOpenChange={o => setUploadModal(prev => ({ ...prev, open: o }))}>
         <DialogContent>
           <DialogHeader><DialogTitle>강의 자료 업로드</DialogTitle></DialogHeader>
@@ -613,7 +584,6 @@ export function TeacherMaterials() {
         </DialogContent>
       </Dialog>
 
-      {/* 기타 시트들 */}
       <Sheet open={transcriptSheet.open} onOpenChange={o => setTranscriptSheet(prev => ({ ...prev, open: o }))}>
         <SheetContent side="bottom" className="h-[80vh] overflow-y-auto">
           <SheetHeader><SheetTitle>음성 트랜스크립트</SheetTitle></SheetHeader>
