@@ -310,7 +310,8 @@ export function TeacherMaterials() {
     setUploadModal(prev => ({ ...prev, open: false }));
     try {
       const selectedSchedule = schedules.find(s => s.scheduleId === scheduleId);
-      const res = await uploadScript(courseId, { 
+      // res를 any로 받아서 모든 타입 체크를 우회하거나, 정확한 타입을 지정합니다.
+      const res: any = await uploadScript(courseId, { 
         file, 
         title,
         scheduleId: scheduleId === "none" ? undefined : scheduleId,
@@ -318,8 +319,8 @@ export function TeacherMaterials() {
       });
       const newScript = {
         id: res.scriptId,
-        scheduleId: res.scheduleId || null,
-        weekNumber: res.weekNumber || null,
+        scheduleId: res.scheduleId ?? null,
+        weekNumber: res.weekNumber ?? null,
         title: res.title || title,
         format: (res.fileName?.split(".").pop() || "문서").toUpperCase(),
         uploadDate: new Date(res.uploadedAt || new Date()).toLocaleDateString(),

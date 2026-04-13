@@ -1031,6 +1031,17 @@ export type ScriptAnalysis = {
   createdAt: string;
 };
 
+export type UploadScriptResponse = {
+  scriptId: string;
+  status: string;
+  message: string;
+  title: string;
+  fileName: string;
+  scheduleId?: string;
+  weekNumber?: number;
+  uploadedAt: string;
+};
+
 // Script APIs
 export async function uploadScript(
   courseId: string,
@@ -1041,7 +1052,7 @@ export async function uploadScript(
     topic?: string;
     scheduleId?: string;
   },
-): Promise<{ scriptId: string; status: string; message: string }> {
+): Promise<UploadScriptResponse> {
   const formData = new FormData();
   formData.append("file", payload.file);
   formData.append("title", payload.title);
@@ -1078,16 +1089,7 @@ export async function uploadScript(
     throw new Error(message);
   }
 
-  return (await response.json()) as {
-    scriptId: string;
-    status: string;
-    message: string;
-    title: string;
-    fileName: string;
-    scheduleId?: string;
-    weekNumber?: number;
-    uploadedAt: string;
-  };
+  return (await response.json()) as UploadScriptResponse;
 }
 
 export async function updateScript(
